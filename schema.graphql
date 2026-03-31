@@ -1,0 +1,342 @@
+schema {
+  query: Query
+  mutation: Mutation
+  subscription: Subscription
+}
+
+type ModelProcessingJobConnection @aws_api_key @aws_iam {
+  items: [ProcessingJob]!
+  nextToken: String
+}
+
+type Mutation @aws_iam {
+  createOrder(ID: String, created_at: AWSDateTime, customer_code: String, delivery_date: AWSDate, estimated_cost: Float, product_code: String, quantity: Int, status: String, unit_price: Float): Order @aws_api_key @aws_iam
+  createProcessingJob(condition: ModelProcessingJobConditionInput, input: CreateProcessingJobInput!): ProcessingJob @aws_api_key @aws_iam
+  deleteOrder(ID: String): Boolean @aws_api_key @aws_iam
+  deleteProcessingJob(condition: ModelProcessingJobConditionInput, input: DeleteProcessingJobInput!): ProcessingJob @aws_api_key @aws_iam
+  updateOrder(ID: String, created_at: AWSDateTime, customer_code: String, delivery_date: AWSDate, estimated_cost: Float, product_code: String, quantity: Int, status: String, unit_price: Float): Order @aws_api_key @aws_iam
+  updateProcessingJob(condition: ModelProcessingJobConditionInput, input: UpdateProcessingJobInput!): ProcessingJob @aws_api_key @aws_iam
+}
+
+type Order @aws_api_key @aws_iam {
+  ID: String
+  created_at: AWSDateTime
+  customer_code: String
+  delivery_date: AWSDate
+  estimated_cost: Float
+  product_code: String
+  quantity: Int
+  status: String
+  unit_price: Float
+}
+
+type OrderResponse @aws_api_key @aws_iam {
+  count: Int
+  data: [Order]
+}
+
+type ProcessingJob @aws_api_key @aws_iam {
+  createdAt: AWSDateTime!
+  endTime: AWSDateTime
+  errorMessage: String
+  failedOrders: Int
+  fileName: String!
+  id: ID!
+  processedBatches: Int
+  processedRows: Int
+  startTime: AWSDateTime!
+  status: ProcessingJobStatus
+  successfulOrders: Int
+  totalBatches: Int
+  totalRows: Int!
+  updatedAt: AWSDateTime!
+}
+
+type Query @aws_iam {
+  getOrder(filter: String, orderby: String, search: String, select: String, skip: Int, top: Int): OrderResponse @aws_api_key @aws_iam
+  getProcessingJob(id: ID!): ProcessingJob @aws_api_key @aws_iam
+  getSales: [Sales] @aws_api_key @aws_iam
+  listProcessingJobs(filter: ModelProcessingJobFilterInput, limit: Int, nextToken: String): ModelProcessingJobConnection @aws_api_key @aws_iam
+}
+
+type Sales @aws_api_key @aws_iam {
+  ID: String
+  created_at: AWSDateTime
+  customer_code: String
+  order_status: String
+  payment_status: String
+  product_code: String
+  product_name: String
+  quantity: Int
+  sales_month: Int
+  sales_week: Int
+  sales_year: Int
+  total_amount: Float
+  unit_price: Float
+  updated_at: AWSDateTime
+}
+
+type Subscription {
+  onCreateProcessingJob(filter: ModelSubscriptionProcessingJobFilterInput): ProcessingJob @aws_api_key @aws_iam @aws_subscribe(mutations : ["createProcessingJob"])
+  onDeleteProcessingJob(filter: ModelSubscriptionProcessingJobFilterInput): ProcessingJob @aws_api_key @aws_iam @aws_subscribe(mutations : ["deleteProcessingJob"])
+  onUpdateProcessingJob(filter: ModelSubscriptionProcessingJobFilterInput): ProcessingJob @aws_api_key @aws_iam @aws_subscribe(mutations : ["updateProcessingJob"])
+}
+
+enum ModelAttributeTypes {
+  _null
+  binary
+  binarySet
+  bool
+  list
+  map
+  number
+  numberSet
+  string
+  stringSet
+}
+
+enum ModelSortDirection {
+  ASC
+  DESC
+}
+
+enum ProcessingJobStatus {
+  COMPLETED
+  FAILED
+  PENDING
+  PROCESSING
+}
+
+input AmplifyAIConversationTurnErrorInput {
+  errorType: String!
+  message: String!
+}
+
+input CreateProcessingJobInput {
+  endTime: AWSDateTime
+  errorMessage: String
+  failedOrders: Int
+  fileName: String!
+  id: ID
+  processedBatches: Int
+  processedRows: Int
+  startTime: AWSDateTime!
+  status: ProcessingJobStatus
+  successfulOrders: Int
+  totalBatches: Int
+  totalRows: Int!
+}
+
+input DeleteProcessingJobInput {
+  id: ID!
+}
+
+input ModelBooleanInput {
+  attributeExists: Boolean
+  attributeType: ModelAttributeTypes
+  eq: Boolean
+  ne: Boolean
+}
+
+input ModelFloatInput {
+  attributeExists: Boolean
+  attributeType: ModelAttributeTypes
+  between: [Float]
+  eq: Float
+  ge: Float
+  gt: Float
+  le: Float
+  lt: Float
+  ne: Float
+}
+
+input ModelIDInput {
+  attributeExists: Boolean
+  attributeType: ModelAttributeTypes
+  beginsWith: ID
+  between: [ID]
+  contains: ID
+  eq: ID
+  ge: ID
+  gt: ID
+  le: ID
+  lt: ID
+  ne: ID
+  notContains: ID
+  size: ModelSizeInput
+}
+
+input ModelIntInput {
+  attributeExists: Boolean
+  attributeType: ModelAttributeTypes
+  between: [Int]
+  eq: Int
+  ge: Int
+  gt: Int
+  le: Int
+  lt: Int
+  ne: Int
+}
+
+input ModelProcessingJobConditionInput {
+  and: [ModelProcessingJobConditionInput]
+  createdAt: ModelStringInput
+  endTime: ModelStringInput
+  errorMessage: ModelStringInput
+  failedOrders: ModelIntInput
+  fileName: ModelStringInput
+  not: ModelProcessingJobConditionInput
+  or: [ModelProcessingJobConditionInput]
+  processedBatches: ModelIntInput
+  processedRows: ModelIntInput
+  startTime: ModelStringInput
+  status: ModelProcessingJobStatusInput
+  successfulOrders: ModelIntInput
+  totalBatches: ModelIntInput
+  totalRows: ModelIntInput
+  updatedAt: ModelStringInput
+}
+
+input ModelProcessingJobFilterInput {
+  and: [ModelProcessingJobFilterInput]
+  createdAt: ModelStringInput
+  endTime: ModelStringInput
+  errorMessage: ModelStringInput
+  failedOrders: ModelIntInput
+  fileName: ModelStringInput
+  id: ModelIDInput
+  not: ModelProcessingJobFilterInput
+  or: [ModelProcessingJobFilterInput]
+  processedBatches: ModelIntInput
+  processedRows: ModelIntInput
+  startTime: ModelStringInput
+  status: ModelProcessingJobStatusInput
+  successfulOrders: ModelIntInput
+  totalBatches: ModelIntInput
+  totalRows: ModelIntInput
+  updatedAt: ModelStringInput
+}
+
+input ModelProcessingJobStatusInput {
+  eq: ProcessingJobStatus
+  ne: ProcessingJobStatus
+}
+
+input ModelSizeInput {
+  between: [Int]
+  eq: Int
+  ge: Int
+  gt: Int
+  le: Int
+  lt: Int
+  ne: Int
+}
+
+input ModelStringInput {
+  attributeExists: Boolean
+  attributeType: ModelAttributeTypes
+  beginsWith: String
+  between: [String]
+  contains: String
+  eq: String
+  ge: String
+  gt: String
+  le: String
+  lt: String
+  ne: String
+  notContains: String
+  size: ModelSizeInput
+}
+
+input ModelSubscriptionBooleanInput {
+  eq: Boolean
+  ne: Boolean
+}
+
+input ModelSubscriptionFloatInput {
+  between: [Float]
+  eq: Float
+  ge: Float
+  gt: Float
+  in: [Float]
+  le: Float
+  lt: Float
+  ne: Float
+  notIn: [Float]
+}
+
+input ModelSubscriptionIDInput {
+  beginsWith: ID
+  between: [ID]
+  contains: ID
+  eq: ID
+  ge: ID
+  gt: ID
+  in: [ID]
+  le: ID
+  lt: ID
+  ne: ID
+  notContains: ID
+  notIn: [ID]
+}
+
+input ModelSubscriptionIntInput {
+  between: [Int]
+  eq: Int
+  ge: Int
+  gt: Int
+  in: [Int]
+  le: Int
+  lt: Int
+  ne: Int
+  notIn: [Int]
+}
+
+input ModelSubscriptionProcessingJobFilterInput {
+  and: [ModelSubscriptionProcessingJobFilterInput]
+  createdAt: ModelSubscriptionStringInput
+  endTime: ModelSubscriptionStringInput
+  errorMessage: ModelSubscriptionStringInput
+  failedOrders: ModelSubscriptionIntInput
+  fileName: ModelSubscriptionStringInput
+  id: ModelSubscriptionIDInput
+  or: [ModelSubscriptionProcessingJobFilterInput]
+  processedBatches: ModelSubscriptionIntInput
+  processedRows: ModelSubscriptionIntInput
+  startTime: ModelSubscriptionStringInput
+  status: ModelSubscriptionStringInput
+  successfulOrders: ModelSubscriptionIntInput
+  totalBatches: ModelSubscriptionIntInput
+  totalRows: ModelSubscriptionIntInput
+  updatedAt: ModelSubscriptionStringInput
+}
+
+input ModelSubscriptionStringInput {
+  beginsWith: String
+  between: [String]
+  contains: String
+  eq: String
+  ge: String
+  gt: String
+  in: [String]
+  le: String
+  lt: String
+  ne: String
+  notContains: String
+  notIn: [String]
+}
+
+input UpdateProcessingJobInput {
+  endTime: AWSDateTime
+  errorMessage: String
+  failedOrders: Int
+  fileName: String
+  id: ID!
+  processedBatches: Int
+  processedRows: Int
+  startTime: AWSDateTime
+  status: ProcessingJobStatus
+  successfulOrders: Int
+  totalBatches: Int
+  totalRows: Int
+}

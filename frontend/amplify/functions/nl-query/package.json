@@ -1,0 +1,12 @@
+{
+  "name": "nl-query",
+  "version": "1.0.0",
+  "type": "module",
+  "description": "自然言語クエリ Lambda関数（Bedrock + Neptune）",
+  "main": "handler.ts",
+  "dependencies": {
+    "@aws-sdk/client-bedrock-runtime": "^3.983.0",
+    "@aws-sdk/client-neptune-graph": "^3.983.0",
+    "@types/node": "^25.2.0"
+  }
+}

@@ -1,0 +1,411 @@
+import {
+  BedrockRuntimeClient,
+  ConverseCommand,
+} from '@aws-sdk/client-bedrock-runtime';
+import {
+  NeptuneGraphClient,
+  ExecuteQueryCommand,
+} from '@aws-sdk/client-neptune-graph';
+
+/**
+ * 自然言語クエリハンドラー
+ * Bedrock Converse APIで自然言語をフィルタ命令またはCypherクエリに変換し、結果を返す
+ * 複数ステップクエリ対応: 名前→ID解決 → 関係クエリの2段階実行
+ * JSONパースエラー・Neptuneエラー時は会話履歴を保持してリトライ
+ */
+
+const NEPTUNE_GRAPH_ID = process.env.NEPTUNE_GRAPH_ID || 'g-1my3glnp96';
+const NEPTUNE_REGION = process.env.NEPTUNE_REGION || 'us-west-2';
+const BEDROCK_REGION = process.env.BEDROCK_REGION || 'us-west-2';
+const BEDROCK_MODEL_ID = process.env.BEDROCK_MODEL_ID || 'anthropic.claude-sonnet-4-5-20250929-v1:0';
+const MAX_RETRIES = 2;
+const MAX_NEPTUNE_RETRIES = 2;
+
+const neptuneClient = new NeptuneGraphClient({ region: NEPTUNE_REGION });
+const bedrockClient = new BedrockRuntimeClient({ region: BEDROCK_REGION });
+
+/** グラフスキーマ定義（Bedrockプロンプト用） */
+const GRAPH_SCHEMA = `
+## Neptune Graph Schema (openCypher)
+
+### ノード（Node Labels）
+- Plant: id, name, location_name, lat, lon, capacity
+- Supplier: id, name, country, region, lat, lon
+- Customer: id, name, industry, lat, lon
+- Product: id, name, type("finished"|"component"|"raw_material"), unit
+- SalesOrder: id, line_item, order_date, requested_date, amount
+- PurchaseOrder: id, line_item, order_date, status("open"|"confirmed"|"delivered"|"cancelled"), amount
+- Location: id, pref, city, lat, lon
+
+### エッジ（Relationship Types）
+- (Supplier)-[:SUPPLIES_TO]->(Plant)
+- (Plant)-[:SUPPLIES_TO]->(Plant)
+- (Plant)-[:SUPPLIES_TO]->(Customer)
+- (Plant)-[:LOCATED_AT]->(Location)
+- (Product)-[:MANUFACTURED_AT]->(Plant)
+- (Plant)-[:SUPPLIES_PRODUCT {to_node, product_id}]->(Product)    // 工場が特定の製品を別ノードに供給
+- (Product)-[:SUPPLIED_BY {price_per_unit}]->(Supplier)
+- (Product)-[:CONSISTS_OF {quantity}]->(Product)                  // BOM: 親製品が子製品を含む
+- (SalesOrder)-[:PLACED_BY]->(Customer)
+- (PurchaseOrder)-[:ISSUED_TO]->(Supplier)
+`;
+
+/** Bedrockシステムプロンプト */
+const SYSTEM_PROMPT = `あなたはサプライチェーングラフデータベースのアシスタントです。
+ユーザーの自然言語クエリを解析し、以下の3種類のいずれかのJSON応答を返してください。
+
+${GRAPH_SCHEMA}
+
+## 応答形式
+
+### 1. フロントエンドフィルタ（地図上のノード表示/非表示を制御）
+単純なフィルタリング（特定のノードだけ表示、影響ノードだけ表示など）の場合:
+{"type":"filter","description":"フィルタの説明","filter":{"showPlants":true,"showSuppliers":true,"showCustomers":true,"highlightIds":["PLT001"],"impactOnly":false}}
+
+### 2. 単一Cypherクエリ（1つのクエリで完結する場合）
+{"type":"cypher","description":"クエリの説明","query":"MATCH (p:Plant) WHERE p.capacity >= 3000 RETURN p.id as id, p.name as name, p.lat as lat, p.lon as lon"}
+
+### 3. 複数ステップCypherクエリ（名前からノードを特定してから関係を探索する場合）
+特定のノードの供給先・供給元・関連ノードを探す場合、まず名前でノードを検索し、次にそのノードの関係を探索する:
+{"type":"multi_cypher","description":"クエリの説明","queries":[{"step":"resolve","purpose":"宮古島半導体工場のIDを特定","query":"MATCH (p:Plant) WHERE p.name CONTAINS '宮古島' RETURN p.id as id, p.name as name"},{"step":"main","purpose":"特定した工場の供給先を取得","query":"MATCH (p:Plant)-[:SUPPLIES_TO]->(target) WHERE p.name CONTAINS '宮古島' RETURN target.id as id, target.name as name, target.lat as lat, target.lon as lon"}]}
+
+### 4. 該当なし（不明・無関係なクエリの場合）
+サプライチェーンと無関係な質問、意味不明な入力、またはグラフスキーマで回答できない質問の場合:
+{"type":"no_result","description":"このシステムではサプライチェーン（工場・サプライヤー・カスタマ・製品・注文）に関する検索のみ対応しています"}
+
+## 重要ルール
+- 応答はJSON1行のみ。コードブロックや説明文は禁止。純粋なJSONだけを返すこと
+- Cypherクエリも必ず1行で記述すること（改行禁止）
+- RETURNには必ずid, name, lat, lonを含めること（地図表示用）。ただしresolveステップはid, nameだけでよい
+- RETURNのカラム名（alias）は全て一意にすること。重複禁止
+- 読み取り専用クエリのみ（CREATE/DELETE/SET禁止）
+- 日本語の質問に対応すること
+- ノード名は日本語で格納されている（例: "東京組立工場", "九州半導体"）
+
+### 名前検索ルール（最重要）
+- ノードIDを絶対にハードコードしないこと。IDは事前に知り得ない情報である
+- ノード名の検索には必ずCONTAINSを使うこと（例: p.name CONTAINS '宮古島'）
+- 特定のノードの供給先・供給元を探す場合は、multi_cypherを使い、resolveステップで名前からノードを特定すること
+- resolveステップのクエリ結果が0件の場合、mainステップは実行されない
+
+### 比較表現
+- 「以上」= >= 「以下」= <= 「超」= > 「未満」= <
+
+## 参考クエリ例
+- トヨタに供給している工場: {"type":"cypher","description":"トヨタ自動車に供給している工場","query":"MATCH (p:Plant)-[:SUPPLIES_TO]->(c:Customer) WHERE c.name CONTAINS 'トヨタ' RETURN p.id as id, p.name as name, p.lat as lat, p.lon as lon"}
+- 沖縄のサプライヤーを表示: {"type":"cypher","description":"沖縄のサプライヤー","query":"MATCH (s:Supplier) WHERE s.region CONTAINS '沖縄' RETURN s.id as id, s.name as name, s.lat as lat, s.lon as lon"}
+- 生産能力3000以上の工場: {"type":"cypher","description":"キャパシティ3000以上の工場","query":"MATCH (p:Plant) WHERE p.capacity >= 3000 RETURN p.id as id, p.name as name, p.lat as lat, p.lon as lon"}
+- 宮古島半導体工場の供給先: {"type":"multi_cypher","description":"宮古島半導体工場の供給先","queries":[{"step":"resolve","purpose":"宮古島半導体工場を特定","query":"MATCH (p:Plant) WHERE p.name CONTAINS '宮古島' RETURN p.id as id, p.name as name"},{"step":"main","purpose":"供給先を取得","query":"MATCH (p:Plant)-[:SUPPLIES_TO]->(target) WHERE p.name CONTAINS '宮古島' RETURN target.id as id, target.name as name, target.lat as lat, target.lon as lon"}]}
+- 九州半導体の供給先工場: {"type":"multi_cypher","description":"九州半導体が供給している工場","queries":[{"step":"resolve","purpose":"九州半導体を特定","query":"MATCH (s:Supplier) WHERE s.name CONTAINS '九州半導体' RETURN s.id as id, s.name as name"},{"step":"main","purpose":"供給先工場を取得","query":"MATCH (s:Supplier)-[:SUPPLIES_TO]->(p:Plant) WHERE s.name CONTAINS '九州半導体' RETURN p.id as id, p.name as name, p.lat as lat, p.lon as lon"}]}
+- 半導体チップBを製造している工場: {"type":"cypher","description":"半導体チップBの製造工場","query":"MATCH (prod:Product)-[:MANUFACTURED_AT]->(p:Plant) WHERE prod.name CONTAINS '半導体チップB' RETURN p.id as id, p.name as name, p.lat as lat, p.lon as lon"}
+- センサーアセンブリの部品: {"type":"cypher","description":"センサーアセンブリの部品構成","query":"MATCH (parent:Product)-[c:CONSISTS_OF]->(child:Product) WHERE parent.name CONTAINS 'センサーアセンブリ' RETURN child.id as id, child.name as name, c.quantity as quantity"}
+- 福岡組立工場に部品を供給している工場: {"type":"multi_cypher","description":"福岡組立工場への部品供給元","queries":[{"step":"resolve","purpose":"福岡組立工場を特定","query":"MATCH (p:Plant) WHERE p.name CONTAINS '福岡' RETURN p.id as id, p.name as name"},{"step":"main","purpose":"部品供給元を取得","query":"MATCH (supplier:Plant)-[sp:SUPPLIES_PRODUCT]->(prod:Product) WHERE sp.to_node = 'PLT006' RETURN supplier.id as id, supplier.name as name, supplier.lat as lat, supplier.lon as lon, prod.name as productName"}]}
+- 影響を受けた工場のみ表示: {"type":"filter","description":"影響を受けた工場のみ表示","filter":{"showPlants":true,"showSuppliers":false,"showCustomers":false,"highlightIds":[],"impactOnly":true}}
+- 今日の天気は？: {"type":"no_result","description":"このシステムではサプライチェーン（工場・サプライヤー・カスタマ・製品・注文）に関する検索のみ対応しています"}
+- あいうえお: {"type":"no_result","description":"入力内容を理解できませんでした。工場やサプライヤーに関する質問をお試しください"}
+`;
+
+/** Converse APIのメッセージ型 */
+interface ConvMessage {
+  role: 'user' | 'assistant';
+  content: { text: string }[];
+}
+
+/** multi_cypherのステップ型 */
+interface QueryStep {
+  step: 'resolve' | 'main';
+  purpose: string;
+  query: string;
+}
+
+/**
+ * Bedrock応答テキストからJSONを抽出してパース
+ */
+function extractJson(text: string): any {
+  // コードブロック内のJSONを抽出
+  const codeBlockMatch = text.match(/```(?:json)?\s*([\s\S]*?)```/);
+  const jsonStr = codeBlockMatch ? codeBlockMatch[1].trim() : text.trim();
+
+  // JSONオブジェクトを抽出（前後の余計なテキストを除去）
+  const objMatch = jsonStr.match(/\{[\s\S]*\}/);
+  if (!objMatch) {
+    throw new Error('JSONオブジェクトが見つかりません');
+  }
+
+  return JSON.parse(objMatch[0]);
+}
+
+/**
+ * Neptuneでクエリを実行
+ */
+async function executeNeptuneQuery(query: string): Promise<any[]> {
+  // 安全性チェック: 読み取り専用クエリのみ許可
+  const upperQuery = query.toUpperCase();
+  if (upperQuery.includes('CREATE') || upperQuery.includes('DELETE') ||
+      upperQuery.includes('SET') || upperQuery.includes('MERGE') ||
+      upperQuery.includes('DROP') || upperQuery.includes('REMOVE')) {
+    throw new Error('データ変更クエリは許可されていません');
+  }
+
+  const command = new ExecuteQueryCommand({
+    graphIdentifier: NEPTUNE_GRAPH_ID,
+    queryString: query,
+    language: 'OPEN_CYPHER',
+  });
+
+  const response = await neptuneClient.send(command);
+  const payload = await response.payload?.transformToString();
+  const parsed = JSON.parse(payload || '{"results": []}');
+  return parsed.results || [];
+}
+
+/**
+ * 複数ステップクエリを実行
+ * resolveステップで0件の場合は「該当なし」を返す
+ */
+async function executeMultiStepQuery(queries: QueryStep[]): Promise<{
+  results: any[];
+  executedQueries: string[];
+}> {
+  const executedQueries: string[] = [];
+
+  // resolveステップを先に実行
+  const resolveStep = queries.find(q => q.step === 'resolve');
+  if (resolveStep) {
+    console.log('Resolve実行:', resolveStep.query);
+    executedQueries.push(resolveStep.query);
+    const resolveResults = await executeNeptuneQuery(resolveStep.query);
+
+    if (resolveResults.length === 0) {
+      // 該当ノードが見つからない → 空結果を返す
+      console.log('Resolveステップ: 該当ノードなし');
+      return { results: [], executedQueries };
+    }
+    console.log(`Resolveステップ: ${resolveResults.length}件のノードを特定`);
+  }
+
+  // mainステップを実行
+  const mainStep = queries.find(q => q.step === 'main');
+  if (mainStep) {
+    console.log('Main実行:', mainStep.query);
+    executedQueries.push(mainStep.query);
+    const results = await executeNeptuneQuery(mainStep.query);
+    return { results, executedQueries };
+  }
+
+  return { results: [], executedQueries };
+}
+
+/**
+ * Bedrock解析 → Neptune実行を一体化したリトライループ
+ * cypher / multi_cypher / filter の3タイプに対応
+ * Neptuneエラー時はBedrockに会話内でフィードバックして修正させる
+ */
+async function executeWithNeptuneRetry(userQuery: string): Promise<{
+  type: string;
+  description: string;
+  query?: string;
+  filter?: any;
+  results: any[];
+}> {
+  // 会話履歴を保持
+  const messages: ConvMessage[] = [
+    { role: 'user', content: [{ text: userQuery }] },
+  ];
+
+  /** Bedrockを呼び出してJSONをパースする内部関数 */
+  async function callAndParse(): Promise<any> {
+    for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+      const command = new ConverseCommand({
+        modelId: BEDROCK_MODEL_ID,
+        system: [{ text: SYSTEM_PROMPT }],
+        messages,
+        inferenceConfig: { maxTokens: 1024 },
+      });
+
+      const response = await bedrockClient.send(command);
+      const assistantText = response.output?.message?.content?.[0]?.text || '';
+      console.log(`Bedrock応答 (JSON試行${attempt + 1}):`, assistantText.substring(0, 500));
+
+      // アシスタント応答を会話履歴に追加
+      messages.push({ role: 'assistant', content: [{ text: assistantText }] });
+
+      try {
+        const parsed = extractJson(assistantText);
+        const validTypes = ['filter', 'cypher', 'multi_cypher', 'no_result'];
+        if (!parsed.type || !validTypes.includes(parsed.type)) {
+          throw new Error(`不正なtype: ${parsed.type}。有効: ${validTypes.join(', ')}`);
+        }
+        if (parsed.type === 'cypher' && !parsed.query) {
+          throw new Error('cypherタイプにqueryフィールドがありません');
+        }
+        if (parsed.type === 'multi_cypher' && (!parsed.queries || !Array.isArray(parsed.queries))) {
+          throw new Error('multi_cypherタイプにqueriesフィールドがありません');
+        }
+        return parsed;
+      } catch (parseError) {
+        const errMsg = parseError instanceof Error ? parseError.message : String(parseError);
+        console.warn(`JSON解析エラー (試行${attempt + 1}/${MAX_RETRIES + 1}):`, errMsg);
+
+        if (attempt >= MAX_RETRIES) {
+          throw new Error(`${MAX_RETRIES + 1}回試行してもJSON解析に失敗: ${errMsg}`);
+        }
+
+        messages.push({
+          role: 'user',
+          content: [{
+            text: `あなたの応答をJSONとしてパースできませんでした。エラー: ${errMsg}\n\n純粋なJSONだけを1行で返してください。コードブロックや説明文は不要です。`,
+          }],
+        });
+      }
+    }
+    throw new Error('リトライ上限に達しました');
+  }
+
+  // メインループ: Bedrock解析 → Neptune実行 → エラー時はBedrockにフィードバック
+  for (let neptuneAttempt = 0; neptuneAttempt <= MAX_NEPTUNE_RETRIES; neptuneAttempt++) {
+    const parsed = await callAndParse();
+
+    // フィルタ型: Neptune実行不要
+    if (parsed.type === 'filter') {
+      return {
+        type: 'filter',
+        description: parsed.description || '',
+        query: JSON.stringify(parsed.filter),
+        filter: parsed.filter || {},
+        results: [],
+      };
+    }
+
+    // 該当なし: Bedrockが不明・無関係と判断
+    if (parsed.type === 'no_result') {
+      return {
+        type: 'no_result',
+        description: parsed.description || 'サプライチェーンに関連する検索のみ対応しています',
+        results: [],
+      };
+    }
+
+    // 単一Cypherクエリ
+    if (parsed.type === 'cypher') {
+      try {
+        console.log(`Neptune実行 (試行${neptuneAttempt + 1}):`, parsed.query);
+        const results = await executeNeptuneQuery(parsed.query);
+
+        // 空結果の場合は明示的なメッセージ付きで返す
+        if (results.length === 0) {
+          return {
+            type: 'no_result',
+            description: `${parsed.description || userQuery} — 該当するデータが見つかりませんでした`,
+            query: parsed.query,
+            results: [],
+          };
+        }
+
+        return {
+          type: 'cypher',
+          description: parsed.description || '',
+          query: parsed.query,
+          results,
+        };
+      } catch (neptuneError) {
+        const errMsg = neptuneError instanceof Error ? neptuneError.message : String(neptuneError);
+        console.warn(`Neptuneクエリエラー (試行${neptuneAttempt + 1}/${MAX_NEPTUNE_RETRIES + 1}):`, errMsg);
+
+        if (neptuneAttempt >= MAX_NEPTUNE_RETRIES) {
+          return {
+            type: 'error',
+            description: `Neptuneクエリエラー: ${errMsg}`,
+            query: parsed.query,
+            results: [],
+          };
+        }
+
+        // Neptuneエラーをフィードバック
+        messages.push({
+          role: 'user',
+          content: [{
+            text: `生成したCypherクエリをNeptuneで実行したところエラーが発生しました。\nクエリ: ${parsed.query}\nエラー: ${errMsg}\n\nエラーを修正した新しいCypherクエリをJSON形式で返してください。純粋なJSONだけを1行で返すこと。`,
+          }],
+        });
+        continue;
+      }
+    }
+
+    // 複数ステップCypherクエリ
+    if (parsed.type === 'multi_cypher') {
+      try {
+        const { results, executedQueries } = await executeMultiStepQuery(parsed.queries);
+        const queryStr = executedQueries.join(' → ');
+
+        // 空結果の場合
+        if (results.length === 0) {
+          return {
+            type: 'no_result',
+            description: `${parsed.description || userQuery} — 該当するデータが見つかりませんでした`,
+            query: queryStr,
+            results: [],
+          };
+        }
+
+        return {
+          type: 'cypher',
+          description: parsed.description || '',
+          query: queryStr,
+          results,
+        };
+      } catch (neptuneError) {
+        const errMsg = neptuneError instanceof Error ? neptuneError.message : String(neptuneError);
+        console.warn(`Multi-stepクエリエラー (試行${neptuneAttempt + 1}/${MAX_NEPTUNE_RETRIES + 1}):`, errMsg);
+
+        if (neptuneAttempt >= MAX_NEPTUNE_RETRIES) {
+          return {
+            type: 'error',
+            description: `Neptuneクエリエラー: ${errMsg}`,
+            query: JSON.stringify(parsed.queries),
+            results: [],
+          };
+        }
+
+        messages.push({
+          role: 'user',
+          content: [{
+            text: `生成したCypherクエリをNeptuneで実行したところエラーが発生しました。\nクエリ: ${JSON.stringify(parsed.queries)}\nエラー: ${errMsg}\n\nエラーを修正した新しいクエリをJSON形式で返してください。純粋なJSONだけを1行で返すこと。`,
+          }],
+        });
+        continue;
+      }
+    }
+  }
+
+  throw new Error('リトライ上限に達しました');
+}
+
+/**
+ * Lambda ハンドラー
+ */
+export const handler = async (event: any) => {
+  console.log('NL Query Event:', JSON.stringify(event, null, 2));
+
+  const { arguments: args } = event;
+  const userQuery = args?.query;
+
+  if (!userQuery || typeof userQuery !== 'string') {
+    return {
+      type: 'error',
+      description: 'クエリが指定されていません',
+      results: [],
+    };
+  }
+
+  try {
+    return await executeWithNeptuneRetry(userQuery);
+  } catch (error) {
+    console.error('NL Query error:', error);
+    return {
+      type: 'error',
+      description: error instanceof Error ? error.message : 'クエリ処理中にエラーが発生しました',
+      results: [],
+    };
+  }
+};
