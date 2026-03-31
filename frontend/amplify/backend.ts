@@ -24,7 +24,7 @@ backend.neptuneQueryFunction.resources.lambda.addToRolePolicy(
       'neptune-graph:CancelQuery',
       'neptune-graph:ReadDataViaQuery',
     ],
-    resources: ['arn:aws:neptune-graph:us-west-2:*:graph/g-1my3glnp96'],
+    resources: ['arn:aws:neptune-graph:us-west-2:*:graph/g-844qqbri1a'],
   })
 );
 
@@ -37,7 +37,7 @@ backend.nlQueryFunction.resources.lambda.addToRolePolicy(
       'neptune-graph:CancelQuery',
       'neptune-graph:ReadDataViaQuery',
     ],
-    resources: ['arn:aws:neptune-graph:us-west-2:*:graph/g-1my3glnp96'],
+    resources: ['arn:aws:neptune-graph:us-west-2:*:graph/g-844qqbri1a'],
   })
 );
 

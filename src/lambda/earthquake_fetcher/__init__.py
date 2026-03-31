@@ -19,7 +19,7 @@ logger = logging.getLogger()
 logger.setLevel(logging.INFO)
 
 # 環境変数
-BUCKET_NAME = os.environ.get("BUCKET_NAME", "supply-chain-earthquake-data")
+BUCKET_NAME = os.environ.get("BUCKET_NAME", "supply-chain-earthquake-data-454953018734")
 API_URL = "https://api.p2pquake.net/v2/jma/quake"
 
 # クライアント初期化

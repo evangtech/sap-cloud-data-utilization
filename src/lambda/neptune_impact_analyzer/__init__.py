@@ -1,10 +1,10 @@
-﻿# -*- coding: utf-8 -*-
+# -*- coding: utf-8 -*-
 """
 Neptune影響分析Lambda関数
 地震データを読み込み、サプライチェーンへの影響を分析し、
 影響グラフを生成してS3に保存します
 
-Version: 1.1.0 - 階層的レイアウト対応
+Version: 2.0.0 - v2 KGスキーマ対応（Location→Country, SUPPLIES/PRODUCED_AT/HAS_COMPONENT）
 """
 import io
 import json
@@ -29,14 +29,19 @@ logger = logging.getLogger()
 logger.setLevel(logging.INFO)
 
 # 環境変数
-NEPTUNE_GRAPH_ID = os.environ.get("NEPTUNE_GRAPH_ID", "g-1my3glnp96")
+NEPTUNE_GRAPH_ID = os.environ.get("NEPTUNE_GRAPH_ID", "g-844qqbri1a")
 NEPTUNE_REGION = os.environ.get("NEPTUNE_REGION", "us-west-2")
-OUTPUT_BUCKET = os.environ.get("OUTPUT_BUCKET", "supply-chain-earthquake-data")
+OUTPUT_BUCKET = os.environ.get("OUTPUT_BUCKET", "supply-chain-earthquake-data-454953018734")
 OUTPUT_PREFIX = os.environ.get("OUTPUT_PREFIX", "impact-analysis/")
 
 # クライアント初期化
 s3_client = boto3.client("s3")
 neptune_client = boto3.client("neptune-graph", region_name=NEPTUNE_REGION)
+
+# 震源座標（handler が earthquake_data から設定 → analyze/find で使用）
+_earthquake_lat: float | None = None
+_earthquake_lon: float | None = None
+_earthquake_radius_km: float = 200.0  # デフォルト影響半径 200 km
 
 
 def handler(event: dict[str, Any], context: Any) -> dict[str, Any]:
@@ -82,25 +87,38 @@ def handler(event: dict[str, Any], context: Any) -> dict[str, Any]:
                 "body": json.dumps({"error": "地震データが見つかりません"}, ensure_ascii=False)
             }
         
+        # 震源座標をモジュール変数に設定（geo-proximity クエリで使用）
+        global _earthquake_lat, _earthquake_lon, _earthquake_radius_km
+        eq_hypo = earthquake_data.get("earthquake", {}).get("hypocenter", {})
+        _earthquake_lat = eq_hypo.get("latitude")
+        _earthquake_lon = eq_hypo.get("longitude")
+        eq_magnitude = eq_hypo.get("magnitude", 5.0)
+        # 震度に応じて影響半径を調整 (M5=100km, M6=200km, M7=400km, M8=600km)
+        _earthquake_radius_km = min(max(50.0, 10 ** (eq_magnitude / 3.0)), 800.0)
+        logger.info(f"震源座標: lat={_earthquake_lat}, lon={_earthquake_lon}, radius={_earthquake_radius_km:.0f}km")
+
         # 影響を受ける地域を抽出
         affected_locations = extract_affected_locations(earthquake_data)
         logger.info(f"影響地域: {affected_locations}")
-        
-        if not affected_locations:
+
+        if not affected_locations and _earthquake_lat is None:
             return {
                 "statusCode": 200,
                 "body": json.dumps({"message": "影響地域なし"}, ensure_ascii=False)
             }
-        
+
         # 各地域について影響分析を実行
+        # Note: v2 KG は pref/city ではなく lat/lon で検索する。
+        # affected_locations はログ用。実際のクエリは _earthquake_lat/lon を使う。
         all_results = []
-        for location in affected_locations:
-            pref = location.get("pref")
-            city = location.get("city")
-            
+        locations_to_analyze = affected_locations if affected_locations else [{"pref": "unknown", "city": "unknown"}]
+        for location in locations_to_analyze:
+            pref = location.get("pref", "")
+            city = location.get("city", "")
+
             # 1. 影響を受ける工場と下流への影響（3階層まで）
             impact_result = analyze_downstream_impact(pref, city)
-            
+
             # 2. 代替サプライヤーの検索
             alternatives = find_alternative_suppliers(pref, city)
             
@@ -261,42 +279,70 @@ def execute_neptune_query(query: str) -> dict[str, Any]:
 def analyze_downstream_impact(pref: str, city: str) -> dict[str, Any]:
     """
     影響を受ける工場と下流への影響を分析（3階層まで）
-    
+
+    v2 KG has no Location/pref/city nodes. Earthquake data provides pref/city
+    (e.g. '宮城県', '仙台市') which cannot match Country.code/name.
+    Strategy: resolve the earthquake epicentre lat/lon upstream and pass it in,
+    OR fall back to geo-proximity matching using Plant.lat/lon.
+    We use the latter: find the earthquake epicentre from the caller context
+    and match plants within a configurable radius.
+
+    For backward-compat the function still accepts pref/city but they are used
+    only for logging. The actual matching uses _earthquake_lat/_earthquake_lon
+    module-level vars set by the handler before calling this function.
+
     Args:
-        pref: 都道府県
-        city: 市区町村
-    
+        pref: 都道府県 (used for logging only)
+        city: 市区町村 (used for logging only)
+
     Returns:
         影響分析結果
     """
-    logger.info(f"下流影響分析: {pref} {city}")
-    
-    # 直接影響を受ける工場を検索
+    logger.info(f"下流影響分析: {pref} {city} (lat={_earthquake_lat}, lon={_earthquake_lon})")
+
+    lat = _earthquake_lat
+    lon = _earthquake_lon
+    radius_km = _earthquake_radius_km
+
+    if lat is None or lon is None:
+        logger.warning("震源座標が未設定 — 空の結果を返します")
+        return {"directly_affected": [], "downstream_impact": []}
+
+    # 直接影響を受ける工場を検索（geo-proximity: Haversine近似）
+    # Neptune openCypher lacks native geo functions, so we use bounding-box
+    # approximation: ±radius_km converted to rough lat/lon degrees.
+    lat_delta = radius_km / 111.0
+    lon_delta = radius_km / (111.0 * max(abs(__import__('math').cos(__import__('math').radians(lat))), 0.01))
+
     direct_impact_query = f"""
-    MATCH (p:Plant)-[:LOCATED_AT]->(l:Location)
-    WHERE l.pref = '{pref}' OR l.city CONTAINS '{city.replace("市", "").replace("町", "")}'
-    RETURN p.id as plant_id, 
-           p.name as plant_name, 
-           l.city as city,
-           l.pref as pref
+    MATCH (p:Plant)-[:LOCATED_IN]->(c:Country)
+    WHERE p.lat >= {lat - lat_delta} AND p.lat <= {lat + lat_delta}
+      AND p.lon >= {lon - lon_delta} AND p.lon <= {lon + lon_delta}
+    RETURN p.id as plant_id,
+           p.name as plant_name,
+           c.name as city,
+           p.country_code as pref
     """
-    
+
     direct_result = execute_neptune_query(direct_impact_query)
-    
+
     # 下流への影響（3階層まで）
     downstream_query = f"""
-    MATCH (affected:Plant)-[:LOCATED_AT]->(l:Location)
-    WHERE l.pref = '{pref}' OR l.city CONTAINS '{city.replace("市", "").replace("町", "")}'
-    MATCH path = (affected)-[:SUPPLIES_TO*1..3]->(downstream:Plant)
-    MATCH (affected)-[:SUPPLIES]->(material:Material)
+    MATCH (affected:Plant)
+    WHERE affected.lat >= {lat - lat_delta} AND affected.lat <= {lat + lat_delta}
+      AND affected.lon >= {lon - lon_delta} AND affected.lon <= {lon + lon_delta}
+    MATCH path = (affected)-[:SUPPLIES_TO*1..3]->(downstream)
+    WHERE downstream:Plant OR downstream:Warehouse OR downstream:Customer
+    OPTIONAL MATCH (prod:Product)-[:PRODUCED_AT]->(affected)
+    OPTIONAL MATCH (prod)-[:HAS_COMPONENT]->(material:Material)
     RETURN affected.name as affected_plant,
-           material.name as affected_material,
+           material.description as affected_material,
            [node in nodes(path) | node.name] as supply_chain_path,
            length(path) as depth
     """
-    
+
     downstream_result = execute_neptune_query(downstream_query)
-    
+
     return {
         "directly_affected": direct_result.get("results", []),
         "downstream_impact": downstream_result.get("results", [])
@@ -307,56 +353,73 @@ def find_alternative_suppliers(pref: str, city: str) -> dict[str, Any]:
     """
     代替サプライヤーを検索
     影響を受けた工場が供給する素材について、他の供給元を検索
-    
+
+    Uses geo-proximity (same as analyze_downstream_impact) to find affected
+    plants, then traverses PRODUCED_AT → HAS_COMPONENT → SUPPLIES to find
+    alternative suppliers not in the affected zone.
+
     Args:
-        pref: 都道府県
-        city: 市区町村
-    
+        pref: 都道府県 (logging only)
+        city: 市区町村 (logging only)
+
     Returns:
         代替サプライヤー情報
     """
-    logger.info(f"代替サプライヤー検索: {pref} {city}")
-    
-    # 影響を受けた工場の素材と、代替サプライヤーを検索
+    logger.info(f"代替サプライヤー検索: {pref} {city} (lat={_earthquake_lat}, lon={_earthquake_lon})")
+
+    lat = _earthquake_lat
+    lon = _earthquake_lon
+    radius_km = _earthquake_radius_km
+
+    if lat is None or lon is None:
+        return {"direct_alternatives": [], "customer_aware_alternatives": []}
+
+    lat_delta = radius_km / 111.0
+    lon_delta = radius_km / (111.0 * max(abs(__import__('math').cos(__import__('math').radians(lat))), 0.01))
+
+    # 影響を受けた工場の素材と、影響圏外の代替サプライヤー
     query = f"""
-    MATCH (affected:Plant)-[:LOCATED_AT]->(affected_loc:Location)
-    WHERE affected_loc.pref = '{pref}' OR affected_loc.city CONTAINS '{city.replace("市", "").replace("町", "")}'
-    MATCH (affected)-[:SUPPLIES]->(material:Material)
-    MATCH (alternative:Plant)-[:SUPPLIES]->(material)
-    MATCH (alternative)-[:LOCATED_AT]->(alt_loc:Location)
-    WHERE alternative <> affected
-      AND NOT (alt_loc.pref = '{pref}' AND alt_loc.city CONTAINS '{city.replace("市", "").replace("町", "")}')
+    MATCH (affected:Plant)
+    WHERE affected.lat >= {lat - lat_delta} AND affected.lat <= {lat + lat_delta}
+      AND affected.lon >= {lon - lon_delta} AND affected.lon <= {lon + lon_delta}
+    MATCH (prod:Product)-[:PRODUCED_AT]->(affected)
+    MATCH (prod)-[:HAS_COMPONENT]->(material:Material)
+    MATCH (alt_supplier:Supplier)-[:SUPPLIES]->(material)
+    MATCH (alt_supplier)-[:LOCATED_IN]->(alt_country:Country)
+    WHERE NOT (alt_supplier.lat >= {lat - lat_delta} AND alt_supplier.lat <= {lat + lat_delta}
+          AND alt_supplier.lon >= {lon - lon_delta} AND alt_supplier.lon <= {lon + lon_delta})
     RETURN affected.name as disrupted_supplier,
-           affected_loc.city as disrupted_city,
-           material.name as material,
-           alternative.name as alternative_supplier,
-           alt_loc.city as alternative_city,
-           alt_loc.pref as alternative_pref
+           affected.country_code as disrupted_pref,
+           material.description as material,
+           alt_supplier.name as alternative_supplier,
+           alt_country.name as alternative_city,
+           alt_supplier.country_code as alternative_pref
     """
-    
+
     result = execute_neptune_query(query)
-    
+
     # カスタマへの影響を考慮した代替サプライヤー
     customer_aware_query = f"""
-    MATCH (affected:Plant)-[:LOCATED_AT]->(affected_loc:Location)
-    WHERE affected_loc.pref = '{pref}' OR affected_loc.city CONTAINS '{city.replace("市", "").replace("町", "")}'
-    MATCH (affected)-[:SUPPLIES]->(material:Material)
-    MATCH (affected)-[:SUPPLIES_TO]->(customer:Plant)
-    MATCH (customer)-[:LOCATED_AT]->(customer_loc:Location)
-    MATCH (alternative:Plant)-[:SUPPLIES]->(material)
-    MATCH (alternative)-[:LOCATED_AT]->(alt_loc:Location)
-    WHERE alternative <> affected
-      AND NOT (alt_loc.pref = '{pref}')
+    MATCH (affected:Plant)
+    WHERE affected.lat >= {lat - lat_delta} AND affected.lat <= {lat + lat_delta}
+      AND affected.lon >= {lon - lon_delta} AND affected.lon <= {lon + lon_delta}
+    MATCH (prod:Product)-[:PRODUCED_AT]->(affected)
+    MATCH (prod)-[:HAS_COMPONENT]->(material:Material)
+    MATCH (affected)-[:SUPPLIES_TO*1..2]->(customer)
+    WHERE customer:Customer OR customer:Warehouse
+    MATCH (alt_supplier:Supplier)-[:SUPPLIES]->(material)
+    MATCH (alt_supplier)-[:LOCATED_IN]->(alt_country:Country)
+    WHERE NOT (alt_supplier.lat >= {lat - lat_delta} AND alt_supplier.lat <= {lat + lat_delta}
+          AND alt_supplier.lon >= {lon - lon_delta} AND alt_supplier.lon <= {lon + lon_delta})
     RETURN affected.name as disrupted_supplier,
            customer.name as affected_customer,
-           customer_loc.city as customer_city,
-           material.name as material,
-           alternative.name as alternative_supplier,
-           alt_loc.city as alternative_city
+           material.description as material,
+           alt_supplier.name as alternative_supplier,
+           alt_country.name as alternative_city
     """
-    
+
     customer_result = execute_neptune_query(customer_aware_query)
-    
+
     return {
         "direct_alternatives": result.get("results", []),
         "customer_aware_alternatives": customer_result.get("results", [])
@@ -773,16 +836,16 @@ def generate_interactive_map(
 
 
 def _fetch_all_locations() -> list[dict[str, Any]]:
-    """Neptuneから全ロケーション情報を取得"""
+    """Neptuneから全Country（旧Location）情報を取得（v2スキーマ）"""
     query = """
-    MATCH (l:Location)
-    RETURN 
-        l.id as id,
-        l.pref as prefecture,
-        l.city as city,
-        l.lat as latitude,
-        l.lon as longitude
-    ORDER BY l.pref, l.city
+    MATCH (c:Country)
+    RETURN
+        c.code as id,
+        c.region as prefecture,
+        c.name as city,
+        c.lat as latitude,
+        c.lon as longitude
+    ORDER BY c.region, c.name
     """
     result = execute_neptune_query(query)
     # execute_neptune_queryは辞書を返す可能性があるため、resultsキーを確認
@@ -792,19 +855,20 @@ def _fetch_all_locations() -> list[dict[str, Any]]:
 
 
 def _fetch_all_plants() -> list[dict[str, Any]]:
-    """Neptuneから全工場情報を取得"""
+    """Neptuneから全工場情報を取得（v2スキーマ）"""
     query = """
-    MATCH (p:Plant)-[:LOCATED_AT]->(l:Location)
-    OPTIONAL MATCH (p)-[:SUPPLIES]->(m:Material)
-    RETURN 
+    MATCH (p:Plant)-[:LOCATED_IN]->(c:Country)
+    OPTIONAL MATCH (prod:Product)-[:PRODUCED_AT]->(p)
+    OPTIONAL MATCH (prod)-[:HAS_COMPONENT]->(m:Material)
+    RETURN
         p.id as plant_id,
         p.name as plant_name,
         p.capacity as capacity,
-        p.is_active as is_active,
-        l.city as city,
-        l.pref as prefecture,
-        l.lat as latitude,
-        l.lon as longitude,
+        p.plant_type as is_active,
+        c.name as city,
+        p.country_code as prefecture,
+        p.lat as latitude,
+        p.lon as longitude,
         collect(DISTINCT m.name) as materials
     """
     result = execute_neptune_query(query)
@@ -819,20 +883,19 @@ def _fetch_all_plants() -> list[dict[str, Any]]:
 
 
 def _fetch_supply_relations() -> list[dict[str, Any]]:
-    """Neptuneからサプライチェーン関係を取得"""
+    """Neptuneからサプライチェーン関係を取得（v2スキーマ: Plant has lat/lon directly）"""
     query = """
-    MATCH (supplier:Plant)-[:SUPPLIES_TO]->(consumer:Plant)
-    MATCH (supplier)-[:LOCATED_AT]->(supplier_loc:Location)
-    MATCH (consumer)-[:LOCATED_AT]->(consumer_loc:Location)
-    RETURN 
+    MATCH (supplier)-[:SUPPLIES_TO]->(consumer:Plant)
+    WHERE supplier:Plant OR supplier:Supplier
+    RETURN
         supplier.id as supplier_id,
         supplier.name as supplier_name,
-        supplier_loc.lat as supplier_lat,
-        supplier_loc.lon as supplier_lon,
+        supplier.lat as supplier_lat,
+        supplier.lon as supplier_lon,
         consumer.id as consumer_id,
         consumer.name as consumer_name,
-        consumer_loc.lat as consumer_lat,
-        consumer_loc.lon as consumer_lon
+        consumer.lat as consumer_lat,
+        consumer.lon as consumer_lon
     """
     result = execute_neptune_query(query)
     # execute_neptune_queryは辞書を返す可能性があるため、resultsキーを確認

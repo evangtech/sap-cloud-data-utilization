@@ -14,8 +14,11 @@ app = cdk.App()
 polling_interval = app.node.try_get_context("polling_interval_minutes") or 60
 
 # Neptune設定をコンテキストから取得
-neptune_graph_id = app.node.try_get_context("neptune_graph_id") or "g-1my3glnp96"
+neptune_graph_id = app.node.try_get_context("neptune_graph_id") or "g-844qqbri1a"
 neptune_region = app.node.try_get_context("neptune_region") or "us-west-2"
+
+# S3バケット名をコンテキストから取得
+s3_bucket_name = app.node.try_get_context("s3_bucket_name") or "supply-chain-earthquake-data-454953018734"
 
 # 環境設定（S3とNeptuneが同じリージョン）
 us_west_2_env = cdk.Environment(region="us-west-2")
@@ -25,6 +28,7 @@ earthquake_stack = EarthquakeStack(
     app,
     "EarthquakeStack",
     polling_interval_minutes=int(polling_interval),
+    s3_bucket_name=s3_bucket_name,
     env=us_west_2_env,
 )
 

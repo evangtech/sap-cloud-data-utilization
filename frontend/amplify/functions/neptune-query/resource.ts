@@ -8,7 +8,7 @@ export const neptuneQuery = defineFunction({
   name: 'neptune-query',
   entry: './handler.ts',
   environment: {
-    NEPTUNE_GRAPH_ID: 'g-1my3glnp96',
+    NEPTUNE_GRAPH_ID: 'g-844qqbri1a',
     NEPTUNE_REGION: 'us-west-2',
   },
   timeoutSeconds: 30,

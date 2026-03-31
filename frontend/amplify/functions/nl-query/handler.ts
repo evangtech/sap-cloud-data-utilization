@@ -14,7 +14,7 @@ import {
  * JSONパースエラー・Neptuneエラー時は会話履歴を保持してリトライ
  */
 
-const NEPTUNE_GRAPH_ID = process.env.NEPTUNE_GRAPH_ID || 'g-1my3glnp96';
+const NEPTUNE_GRAPH_ID = process.env.NEPTUNE_GRAPH_ID || 'g-844qqbri1a';
 const NEPTUNE_REGION = process.env.NEPTUNE_REGION || 'us-west-2';
 const BEDROCK_REGION = process.env.BEDROCK_REGION || 'us-west-2';
 const BEDROCK_MODEL_ID = process.env.BEDROCK_MODEL_ID || 'anthropic.claude-sonnet-4-5-20250929-v1:0';
@@ -29,25 +29,27 @@ const GRAPH_SCHEMA = `
 ## Neptune Graph Schema (openCypher)
 
 ### ノード（Node Labels）
-- Plant: id, name, location_name, lat, lon, capacity
-- Supplier: id, name, country, region, lat, lon
-- Customer: id, name, industry, lat, lon
-- Product: id, name, type("finished"|"component"|"raw_material"), unit
-- SalesOrder: id, line_item, order_date, requested_date, amount
-- PurchaseOrder: id, line_item, order_date, status("open"|"confirmed"|"delivered"|"cancelled"), amount
-- Location: id, pref, city, lat, lon
+- Country (code:STRING, name:STRING, region:STRING, geopolitical_risk:FLOAT, sanction_regime:STRING, exchange_rate_jpy:FLOAT, lat:FLOAT, lon:FLOAT)
+- HSCode (code:STRING, description:STRING, chapter:STRING, heading:STRING)
+- Regulation (id:STRING, name:STRING, type:STRING, effective_date:STRING, issuing_country:STRING)
+- Supplier (id:STRING, name:STRING, country_code:STRING, region:STRING, credit_score:FLOAT, quality_score:FLOAT, lead_time_days:INT, sanction_status:STRING, lat:FLOAT, lon:FLOAT, tier:STRING, status:STRING)
+- Material (id:STRING, description:STRING, material_group:STRING, weight:FLOAT, weight_unit:STRING, origin_country:STRING, hs_code:STRING, unit_price:FLOAT, currency:STRING, annual_volume:FLOAT)
+- Product (id:STRING, description:STRING, product_group:STRING, cost_estimate_jpy:FLOAT, sales_price_jpy:FLOAT, margin_rate:FLOAT)
+- Plant (id:STRING, name:STRING, country_code:STRING, plant_type:STRING, lat:FLOAT, lon:FLOAT, capacity:INT, status:STRING)
+- Warehouse (id:STRING, name:STRING, country_code:STRING, lat:FLOAT, lon:FLOAT, capacity:INT, status:STRING)
+- Customer (id:STRING, name:STRING, industry:STRING, country_code:STRING, lat:FLOAT, lon:FLOAT)
 
 ### エッジ（Relationship Types）
-- (Supplier)-[:SUPPLIES_TO]->(Plant)
-- (Plant)-[:SUPPLIES_TO]->(Plant)
-- (Plant)-[:SUPPLIES_TO]->(Customer)
-- (Plant)-[:LOCATED_AT]->(Location)
-- (Product)-[:MANUFACTURED_AT]->(Plant)
-- (Plant)-[:SUPPLIES_PRODUCT {to_node, product_id}]->(Product)    // 工場が特定の製品を別ノードに供給
-- (Product)-[:SUPPLIED_BY {price_per_unit}]->(Supplier)
-- (Product)-[:CONSISTS_OF {quantity}]->(Product)                  // BOM: 親製品が子製品を含む
-- (SalesOrder)-[:PLACED_BY]->(Customer)
-- (PurchaseOrder)-[:ISSUED_TO]->(Supplier)
+- LOCATED_IN: (Supplier|Plant|Warehouse|Customer)-[:LOCATED_IN]->(Country)
+- CLASSIFIED_AS: (Material)-[:CLASSIFIED_AS]->(HSCode)
+- TARIFF_APPLIES: (HSCode)-[:TARIFF_APPLIES {importing_country:STRING, tariff_rate_pct:FLOAT, effective_date:STRING, tariff_type:STRING}]->(Country)
+- SUBJECT_TO: (HSCode|Material)-[:SUBJECT_TO]->(Regulation)
+- SUPPLIES: (Supplier)-[:SUPPLIES {is_primary:BOOLEAN}]->(Material)
+- HAS_COMPONENT: (Product)-[:HAS_COMPONENT {quantity:INT, bom_level:INT}]->(Material)
+- PRODUCED_AT: (Product)-[:PRODUCED_AT]->(Plant)
+- SUPPLIES_TO: (Supplier)-[:SUPPLIES_TO]->(Supplier|Plant), (Plant)-[:SUPPLIES_TO]->(Warehouse|Customer), (Warehouse)-[:SUPPLIES_TO]->(Customer)
+- ORDERED_BY: (Product)-[:ORDERED_BY {annual_order_qty:INT, unit_price_jpy:FLOAT}]->(Customer)
+- ALTERNATIVE_TO: (Supplier)-[:ALTERNATIVE_TO {quality_score_diff:INT, price_diff_pct:INT, lead_time_diff_days:INT, risk_score_diff:INT}]->(Supplier)
 `;
 
 /** Bedrockシステムプロンプト */
@@ -60,18 +62,18 @@ ${GRAPH_SCHEMA}
 
 ### 1. フロントエンドフィルタ（地図上のノード表示/非表示を制御）
 単純なフィルタリング（特定のノードだけ表示、影響ノードだけ表示など）の場合:
-{"type":"filter","description":"フィルタの説明","filter":{"showPlants":true,"showSuppliers":true,"showCustomers":true,"highlightIds":["PLT001"],"impactOnly":false}}
+{"type":"filter","description":"フィルタの説明","filter":{"showPlants":true,"showSuppliers":true,"showCustomers":true,"showWarehouses":true,"highlightIds":["PLT001"],"impactOnly":false}}
 
 ### 2. 単一Cypherクエリ（1つのクエリで完結する場合）
 {"type":"cypher","description":"クエリの説明","query":"MATCH (p:Plant) WHERE p.capacity >= 3000 RETURN p.id as id, p.name as name, p.lat as lat, p.lon as lon"}
 
 ### 3. 複数ステップCypherクエリ（名前からノードを特定してから関係を探索する場合）
 特定のノードの供給先・供給元・関連ノードを探す場合、まず名前でノードを検索し、次にそのノードの関係を探索する:
-{"type":"multi_cypher","description":"クエリの説明","queries":[{"step":"resolve","purpose":"宮古島半導体工場のIDを特定","query":"MATCH (p:Plant) WHERE p.name CONTAINS '宮古島' RETURN p.id as id, p.name as name"},{"step":"main","purpose":"特定した工場の供給先を取得","query":"MATCH (p:Plant)-[:SUPPLIES_TO]->(target) WHERE p.name CONTAINS '宮古島' RETURN target.id as id, target.name as name, target.lat as lat, target.lon as lon"}]}
+{"type":"multi_cypher","description":"クエリの説明","queries":[{"step":"resolve","purpose":"宮古島半導体工場のIDを特定","query":"MATCH (p:Plant) WHERE p.name CONTAINS '宮古島' RETURN p.id as id, p.name as name"},{"step":"main","purpose":"特定した工場の供給先を取得","query":"MATCH (p:Plant)-[:SUPPLIES_TO]->(target) WHERE p.name CONTAINS '宮古島' RETURN target.id as id, target.name as name, labels(target)[0] as nodeType, target.lat as lat, target.lon as lon"}]}
 
 ### 4. 該当なし（不明・無関係なクエリの場合）
 サプライチェーンと無関係な質問、意味不明な入力、またはグラフスキーマで回答できない質問の場合:
-{"type":"no_result","description":"このシステムではサプライチェーン（工場・サプライヤー・カスタマ・製品・注文）に関する検索のみ対応しています"}
+{"type":"no_result","description":"このシステムではサプライチェーン（工場・サプライヤー・カスタマ・倉庫・製品・資材・規制・関税）に関する検索のみ対応しています"}
 
 ## 重要ルール
 - 応答はJSON1行のみ。コードブロックや説明文は禁止。純粋なJSONだけを返すこと
@@ -80,7 +82,8 @@ ${GRAPH_SCHEMA}
 - RETURNのカラム名（alias）は全て一意にすること。重複禁止
 - 読み取り専用クエリのみ（CREATE/DELETE/SET禁止）
 - 日本語の質問に対応すること
-- ノード名は日本語で格納されている（例: "東京組立工場", "九州半導体"）
+- ノードのname/descriptionは日本語で格納されている場合がある（例: "東京組立工場", "九州半導体"）
+- Productにはlat/lonがないため、地図表示にはPRODUCED_ATで関連するPlantのlat/lonを使うこと
 
 ### 名前検索ルール（最重要）
 - ノードIDを絶対にハードコードしないこと。IDは事前に知り得ない情報である
@@ -92,16 +95,19 @@ ${GRAPH_SCHEMA}
 - 「以上」= >= 「以下」= <= 「超」= > 「未満」= <
 
 ## 参考クエリ例
-- トヨタに供給している工場: {"type":"cypher","description":"トヨタ自動車に供給している工場","query":"MATCH (p:Plant)-[:SUPPLIES_TO]->(c:Customer) WHERE c.name CONTAINS 'トヨタ' RETURN p.id as id, p.name as name, p.lat as lat, p.lon as lon"}
-- 沖縄のサプライヤーを表示: {"type":"cypher","description":"沖縄のサプライヤー","query":"MATCH (s:Supplier) WHERE s.region CONTAINS '沖縄' RETURN s.id as id, s.name as name, s.lat as lat, s.lon as lon"}
+- トヨタに供給している工場: {"type":"cypher","description":"トヨタに供給している工場","query":"MATCH (p:Plant)-[:SUPPLIES_TO]->(c:Customer) WHERE c.name CONTAINS 'トヨタ' RETURN p.id as id, p.name as name, p.lat as lat, p.lon as lon"}
+- 東南アジアのサプライヤーを表示: {"type":"cypher","description":"東南アジアのサプライヤー","query":"MATCH (s:Supplier) WHERE s.region CONTAINS '東南アジア' RETURN s.id as id, s.name as name, s.lat as lat, s.lon as lon"}
 - 生産能力3000以上の工場: {"type":"cypher","description":"キャパシティ3000以上の工場","query":"MATCH (p:Plant) WHERE p.capacity >= 3000 RETURN p.id as id, p.name as name, p.lat as lat, p.lon as lon"}
 - 宮古島半導体工場の供給先: {"type":"multi_cypher","description":"宮古島半導体工場の供給先","queries":[{"step":"resolve","purpose":"宮古島半導体工場を特定","query":"MATCH (p:Plant) WHERE p.name CONTAINS '宮古島' RETURN p.id as id, p.name as name"},{"step":"main","purpose":"供給先を取得","query":"MATCH (p:Plant)-[:SUPPLIES_TO]->(target) WHERE p.name CONTAINS '宮古島' RETURN target.id as id, target.name as name, target.lat as lat, target.lon as lon"}]}
 - 九州半導体の供給先工場: {"type":"multi_cypher","description":"九州半導体が供給している工場","queries":[{"step":"resolve","purpose":"九州半導体を特定","query":"MATCH (s:Supplier) WHERE s.name CONTAINS '九州半導体' RETURN s.id as id, s.name as name"},{"step":"main","purpose":"供給先工場を取得","query":"MATCH (s:Supplier)-[:SUPPLIES_TO]->(p:Plant) WHERE s.name CONTAINS '九州半導体' RETURN p.id as id, p.name as name, p.lat as lat, p.lon as lon"}]}
-- 半導体チップBを製造している工場: {"type":"cypher","description":"半導体チップBの製造工場","query":"MATCH (prod:Product)-[:MANUFACTURED_AT]->(p:Plant) WHERE prod.name CONTAINS '半導体チップB' RETURN p.id as id, p.name as name, p.lat as lat, p.lon as lon"}
-- センサーアセンブリの部品: {"type":"cypher","description":"センサーアセンブリの部品構成","query":"MATCH (parent:Product)-[c:CONSISTS_OF]->(child:Product) WHERE parent.name CONTAINS 'センサーアセンブリ' RETURN child.id as id, child.name as name, c.quantity as quantity"}
-- 福岡組立工場に部品を供給している工場: {"type":"multi_cypher","description":"福岡組立工場への部品供給元","queries":[{"step":"resolve","purpose":"福岡組立工場を特定","query":"MATCH (p:Plant) WHERE p.name CONTAINS '福岡' RETURN p.id as id, p.name as name"},{"step":"main","purpose":"部品供給元を取得","query":"MATCH (supplier:Plant)-[sp:SUPPLIES_PRODUCT]->(prod:Product) WHERE sp.to_node = 'PLT006' RETURN supplier.id as id, supplier.name as name, supplier.lat as lat, supplier.lon as lon, prod.name as productName"}]}
-- 影響を受けた工場のみ表示: {"type":"filter","description":"影響を受けた工場のみ表示","filter":{"showPlants":true,"showSuppliers":false,"showCustomers":false,"highlightIds":[],"impactOnly":true}}
-- 今日の天気は？: {"type":"no_result","description":"このシステムではサプライチェーン（工場・サプライヤー・カスタマ・製品・注文）に関する検索のみ対応しています"}
+- 半導体チップBを製造している工場: {"type":"cypher","description":"半導体チップBの製造工場","query":"MATCH (prod:Product)-[:PRODUCED_AT]->(p:Plant) WHERE prod.description CONTAINS '半導体チップB' RETURN p.id as id, p.name as name, p.lat as lat, p.lon as lon"}
+- センサーアセンブリの部品（資材）: {"type":"cypher","description":"センサーアセンブリの部品構成","query":"MATCH (prod:Product)-[c:HAS_COMPONENT]->(m:Material) WHERE prod.description CONTAINS 'センサーアセンブリ' RETURN m.id as id, m.description as name, c.quantity as quantity, c.bom_level as bomLevel"}
+- 福岡組立工場に資材を供給しているサプライヤー: {"type":"multi_cypher","description":"福岡組立工場への資材供給元サプライヤー","queries":[{"step":"resolve","purpose":"福岡組立工場を特定","query":"MATCH (p:Plant) WHERE p.name CONTAINS '福岡' RETURN p.id as id, p.name as name"},{"step":"main","purpose":"供給元サプライヤーを取得","query":"MATCH (s:Supplier)-[:SUPPLIES_TO]->(p:Plant) WHERE p.name CONTAINS '福岡' RETURN s.id as id, s.name as name, s.lat as lat, s.lon as lon"}]}
+- 関税率が10%以上のHSコード: {"type":"cypher","description":"関税率10%以上のHSコードと対象国","query":"MATCH (h:HSCode)-[t:TARIFF_APPLIES]->(c:Country) WHERE t.tariff_rate_pct >= 10.0 RETURN h.code as id, h.description as name, t.tariff_rate_pct as tariffRate, c.name as country, c.lat as lat, c.lon as lon"}
+- 制裁対象のサプライヤー: {"type":"cypher","description":"制裁対象のサプライヤー","query":"MATCH (s:Supplier) WHERE s.sanction_status <> 'clear' RETURN s.id as id, s.name as name, s.lat as lat, s.lon as lon, s.sanction_status as sanctionStatus"}
+- あるサプライヤーの代替候補: {"type":"multi_cypher","description":"九州半導体の代替サプライヤー","queries":[{"step":"resolve","purpose":"九州半導体を特定","query":"MATCH (s:Supplier) WHERE s.name CONTAINS '九州半導体' RETURN s.id as id, s.name as name"},{"step":"main","purpose":"代替サプライヤーを取得","query":"MATCH (s:Supplier)-[a:ALTERNATIVE_TO]->(alt:Supplier) WHERE s.name CONTAINS '九州半導体' RETURN alt.id as id, alt.name as name, alt.lat as lat, alt.lon as lon, a.price_diff_pct as priceDiff, a.lead_time_diff_days as leadTimeDiff"}]}
+- 影響を受けた工場のみ表示: {"type":"filter","description":"影響を受けた工場のみ表示","filter":{"showPlants":true,"showSuppliers":false,"showCustomers":false,"showWarehouses":false,"highlightIds":[],"impactOnly":true}}
+- 今日の天気は？: {"type":"no_result","description":"このシステムではサプライチェーン（工場・サプライヤー・カスタマ・倉庫・製品・資材・規制・関税）に関する検索のみ対応しています"}
 - あいうえお: {"type":"no_result","description":"入力内容を理解できませんでした。工場やサプライヤーに関する質問をお試しください"}
 `;
 

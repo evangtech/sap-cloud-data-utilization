@@ -8,7 +8,7 @@ export const nlQuery = defineFunction({
   name: 'nl-query',
   entry: './handler.ts',
   environment: {
-    NEPTUNE_GRAPH_ID: 'g-1my3glnp96',
+    NEPTUNE_GRAPH_ID: 'g-844qqbri1a',
     NEPTUNE_REGION: 'us-west-2',
     BEDROCK_REGION: 'us-west-2',
     BEDROCK_MODEL_ID: 'anthropic.claude-3-haiku-20240307-v1:0',

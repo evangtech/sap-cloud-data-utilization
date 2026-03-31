@@ -30,7 +30,7 @@ class NeptuneImpactAnalyzerStack(Stack):
         scope: Construct,
         construct_id: str,
         bucket: s3.IBucket,
-        neptune_graph_id: str = "g-1my3glnp96",
+        neptune_graph_id: str = "g-844qqbri1a",
         neptune_region: str = "us-west-2",
         **kwargs
     ) -> None:

@@ -8,7 +8,7 @@ import {
  * AppSync resolverとして動作し、Neptuneからサプライチェーンデータを取得
  */
 
-const NEPTUNE_GRAPH_ID = process.env.NEPTUNE_GRAPH_ID || 'g-1my3glnp96';
+const NEPTUNE_GRAPH_ID = process.env.NEPTUNE_GRAPH_ID || 'g-844qqbri1a';
 const NEPTUNE_REGION = process.env.NEPTUNE_REGION || 'us-west-2';
 
 const client = new NeptuneGraphClient({ region: NEPTUNE_REGION });
@@ -44,16 +44,16 @@ async function executeQuery(query: string): Promise<NeptuneResult> {
 async function getPlants() {
   const query = `
     MATCH (p:Plant)
-    OPTIONAL MATCH (p)-[:LOCATED_AT]->(l:Location)
-    RETURN 
+    OPTIONAL MATCH (p)-[:LOCATED_IN]->(c:Country)
+    RETURN
       p.id as id,
       p.name as name,
-      p.location_name as locationName,
+      p.country_code as locationName,
       p.lat as latitude,
       p.lon as longitude,
       p.capacity as capacity,
-      l.pref as prefecture,
-      l.city as city
+      c.name as prefecture,
+      c.region as city
     ORDER BY p.name
   `;
   const result = await executeQuery(query);
@@ -66,10 +66,10 @@ async function getPlants() {
 async function getSuppliers() {
   const query = `
     MATCH (s:Supplier)
-    RETURN 
+    RETURN
       s.id as id,
       s.name as name,
-      s.country as country,
+      s.country_code as country,
       s.region as region,
       s.lat as latitude,
       s.lon as longitude
@@ -85,10 +85,11 @@ async function getSuppliers() {
 async function getCustomers() {
   const query = `
     MATCH (c:Customer)
-    RETURN 
+    RETURN
       c.id as id,
       c.name as name,
       c.industry as industry,
+      c.country_code as countryCode,
       c.lat as latitude,
       c.lon as longitude
     ORDER BY c.name
@@ -105,8 +106,8 @@ async function getSupplyRelations() {
   // 製品情報は別クエリで取得してマージする（OPTIONAL MATCHの問題を回避）
   const relationsQuery = `
     MATCH (from)-[:SUPPLIES_TO]->(to)
-    WHERE (from:Plant OR from:Supplier) AND (to:Plant OR to:Customer)
-    RETURN 
+    WHERE (from:Plant OR from:Supplier OR from:Warehouse) AND (to:Plant OR to:Customer OR to:Warehouse)
+    RETURN
       from.id as fromId,
       labels(from)[0] as fromType,
       from.name as fromName,
@@ -120,31 +121,48 @@ async function getSupplyRelations() {
   `;
   const relationsResult = await executeQuery(relationsQuery);
   const relations = relationsResult.results || [];
-  
-  // SUPPLIES_PRODUCT関係を取得
-  const productsQuery = `
-    MATCH (from)-[sp:SUPPLIES_PRODUCT]->(prod:Product)
-    RETURN from.id as fromId, sp.to_node as toId, prod.id as productId, prod.name as productName
+
+  // 製品情報を取得（fromId + toId ペアごとに紐付く製品を特定）
+  // Supplier→Plant の場合: Supplier-[:SUPPLIES]->Material<-[:HAS_COMPONENT]-Product-[:PRODUCED_AT]->Plant
+  // Plant→Warehouse/Customer の場合: Product-[:PRODUCED_AT]->Plant で紐付く製品
+  const supplierProductsQuery = `
+    MATCH (s:Supplier)-[:SUPPLIES_TO]->(dest)
+    MATCH (s)-[:SUPPLIES]->(m:Material)<-[:HAS_COMPONENT]-(prod:Product)-[:PRODUCED_AT]->(dest)
+    RETURN s.id as fromId, dest.id as toId, prod.id as productId, prod.description as productName
   `;
-  const productsResult = await executeQuery(productsQuery);
-  const productEdges = productsResult.results || [];
-  
-  // 製品情報をマップに整理（fromId-toId → products[]）
+  const plantProductsQuery = `
+    MATCH (p:Plant)-[:SUPPLIES_TO]->(dest)
+    MATCH (prod:Product)-[:PRODUCED_AT]->(p)
+    RETURN p.id as fromId, dest.id as toId, prod.id as productId, prod.description as productName
+  `;
+  const [suppProdResult, plantProdResult] = await Promise.all([
+    executeQuery(supplierProductsQuery),
+    executeQuery(plantProductsQuery),
+  ]);
+  const productEdges = [
+    ...(suppProdResult.results || []),
+    ...(plantProdResult.results || []),
+  ];
+
+  // 製品情報をマップに整理（fromId-toId ペア → products[]）
   const productMap = new Map<string, { id: string; name: string }[]>();
   productEdges.forEach((pe: any) => {
-    const key = `${pe.fromId}-${pe.toId}`;
+    const key = `${pe.fromId}::${pe.toId}`;
     if (!productMap.has(key)) {
       productMap.set(key, []);
     }
-    productMap.get(key)!.push({ id: pe.productId, name: pe.productName });
+    const existing = productMap.get(key)!;
+    if (!existing.some((p) => p.id === pe.productId)) {
+      existing.push({ id: pe.productId, name: pe.productName });
+    }
   });
-  
-  // 関係データに製品情報をマージ
+
+  // 関係データに製品情報をマージ（fromId-toId ペアで正確にマッチ）
   const result = relations.map((r: any) => ({
     ...r,
-    products: productMap.get(`${r.fromId}-${r.toId}`) || [],
+    products: productMap.get(`${r.fromId}::${r.toId}`) || [],
   }));
-  
+
   console.log('getSupplyRelations result count:', result.length);
   return result;
 }
@@ -153,15 +171,15 @@ async function getSupplyRelations() {
  * 特定のロケーションで影響を受ける工場を取得
  */
 async function getAffectedPlantsByLocation(pref: string, city?: string) {
-  let whereClause = `l.pref = '${pref}'`;
+  let whereClause = `c.name = '${pref}' OR c.code = '${pref}'`;
   if (city) {
-    whereClause += ` OR l.city CONTAINS '${city}'`;
+    whereClause += ` OR c.region CONTAINS '${city}'`;
   }
 
   const query = `
-    MATCH (p:Plant)-[:LOCATED_AT]->(l:Location)
+    MATCH (p:Plant)-[:LOCATED_IN]->(c:Country)
     WHERE ${whereClause}
-    RETURN 
+    RETURN
       p.id as id,
       p.name as name,
       p.lat as latitude,
@@ -203,13 +221,14 @@ async function getDownstreamImpact(plantIds: string[]) {
 async function getImpactedOrderAmount(plantIds: string[]) {
   const idsString = plantIds.map((id) => `'${id}'`).join(', ');
 
+  // v2: ORDERED_BY has annual_order_qty and unit_price_jpy (not amount)
   const query = `
     MATCH (p:Plant)
     WHERE p.id IN [${idsString}]
-    MATCH (p)-[:SUPPLIES_TO*1..3]->(c:Customer)<-[:PLACED_BY]-(so:SalesOrder)
-    RETURN 
-      sum(so.amount) as totalAmount,
-      count(DISTINCT so) as orderCount,
+    MATCH (p)-[:SUPPLIES_TO*1..3]->(c:Customer)<-[o:ORDERED_BY]-(prod:Product)
+    RETURN
+      sum(o.annual_order_qty * o.unit_price_jpy) as totalAmount,
+      count(DISTINCT prod) as orderCount,
       count(DISTINCT c) as customerCount
   `;
   const result = await executeQuery(query);
@@ -221,48 +240,51 @@ async function getImpactedOrderAmount(plantIds: string[]) {
  */
 async function getSalesOrdersByNode(nodeType: string, nodeId: string) {
   let query = '';
-  
+
   if (nodeType === 'plant') {
-    // 工場 → 直接・間接的に供給するカスタマの販売伝票
+    // 工場 → 直接・間接的に供給するカスタマの注文（ORDERED_BY経由）
+    // v2: ORDERED_BY has annual_order_qty, unit_price_jpy (not order_id/amount)
     query = `
-      MATCH (p:Plant {id: '${nodeId}'})-[:SUPPLIES_TO*1..3]->(c:Customer)<-[:PLACED_BY]-(so:SalesOrder)
+      MATCH (p:Plant {id: '${nodeId}'})-[:SUPPLIES_TO*1..3]->(c:Customer)
+      MATCH (prod:Product)-[o:ORDERED_BY]->(c)
       RETURN DISTINCT
-        so.id as id,
-        so.line_item as lineItem,
-        so.order_date as orderDate,
-        so.requested_date as requestedDate,
-        so.amount as amount,
+        prod.id as id,
+        prod.description as lineItem,
+        '' as orderDate,
+        '' as requestedDate,
+        toFloat(o.annual_order_qty) * toFloat(o.unit_price_jpy) as amount,
         c.id as customerId,
         c.name as customerName
-      ORDER BY so.order_date DESC
+      ORDER BY amount DESC
     `;
   } else if (nodeType === 'customer') {
-    // カスタマの販売伝票
+    // カスタマの注文（ORDERED_BY経由）
     query = `
-      MATCH (c:Customer {id: '${nodeId}'})<-[:PLACED_BY]-(so:SalesOrder)
+      MATCH (prod:Product)-[o:ORDERED_BY]->(c:Customer {id: '${nodeId}'})
       RETURN
-        so.id as id,
-        so.line_item as lineItem,
-        so.order_date as orderDate,
-        so.requested_date as requestedDate,
-        so.amount as amount,
+        prod.id as id,
+        prod.description as lineItem,
+        '' as orderDate,
+        '' as requestedDate,
+        toFloat(o.annual_order_qty) * toFloat(o.unit_price_jpy) as amount,
         c.id as customerId,
         c.name as customerName
-      ORDER BY so.order_date DESC
+      ORDER BY amount DESC
     `;
   } else if (nodeType === 'supplier') {
-    // サプライヤー → 供給先工場 → カスタマの販売伝票
+    // サプライヤー → 供給先工場 → カスタマの注文（ORDERED_BY経由）
     query = `
-      MATCH (s:Supplier {id: '${nodeId}'})-[:SUPPLIES_TO]->(p:Plant)-[:SUPPLIES_TO*1..2]->(c:Customer)<-[:PLACED_BY]-(so:SalesOrder)
+      MATCH (s:Supplier {id: '${nodeId}'})-[:SUPPLIES_TO]->(p:Plant)-[:SUPPLIES_TO*1..2]->(c:Customer)
+      MATCH (prod:Product)-[o:ORDERED_BY]->(c)
       RETURN DISTINCT
-        so.id as id,
-        so.line_item as lineItem,
-        so.order_date as orderDate,
-        so.requested_date as requestedDate,
-        so.amount as amount,
+        prod.id as id,
+        prod.description as lineItem,
+        '' as orderDate,
+        '' as requestedDate,
+        toFloat(o.annual_order_qty) * toFloat(o.unit_price_jpy) as amount,
         c.id as customerId,
         c.name as customerName
-      ORDER BY so.order_date DESC
+      ORDER BY amount DESC
     `;
   }
 
@@ -278,48 +300,49 @@ async function getPurchaseOrdersByNode(nodeType: string, nodeId: string) {
   let query = '';
 
   if (nodeType === 'supplier') {
-    // サプライヤーへの購買伝票
+    // サプライヤーが供給する資材情報（SUPPLIES経由）
+    // v2: SUPPLIES has is_primary only. Use material properties for display.
     query = `
-      MATCH (s:Supplier {id: '${nodeId}'})<-[:ISSUED_TO]-(po:PurchaseOrder)
+      MATCH (s:Supplier {id: '${nodeId}'})-[r:SUPPLIES]->(m:Material)
       RETURN
-        po.id as id,
-        po.line_item as lineItem,
-        po.order_date as orderDate,
-        po.status as status,
-        po.amount as amount,
+        m.id as id,
+        m.description as lineItem,
+        CASE WHEN r.is_primary THEN 'primary' ELSE 'alternative' END as orderDate,
+        CASE WHEN r.is_primary THEN 'active' ELSE 'standby' END as status,
+        m.unit_price as amount,
         s.id as supplierId,
         s.name as supplierName
-      ORDER BY po.order_date DESC
+      ORDER BY r.is_primary DESC, m.id
     `;
   } else if (nodeType === 'plant') {
-    // 工場に供給するサプライヤーの購買伝票
+    // 工場に供給するサプライヤーの資材情報
     query = `
       MATCH (s:Supplier)-[:SUPPLIES_TO]->(p:Plant {id: '${nodeId}'})
-      MATCH (s)<-[:ISSUED_TO]-(po:PurchaseOrder)
+      MATCH (s)-[r:SUPPLIES]->(m:Material)
       RETURN
-        po.id as id,
-        po.line_item as lineItem,
-        po.order_date as orderDate,
-        po.status as status,
-        po.amount as amount,
+        m.id as id,
+        m.description as lineItem,
+        CASE WHEN r.is_primary THEN 'primary' ELSE 'alternative' END as orderDate,
+        CASE WHEN r.is_primary THEN 'active' ELSE 'standby' END as status,
+        m.unit_price as amount,
         s.id as supplierId,
         s.name as supplierName
-      ORDER BY po.order_date DESC
+      ORDER BY r.is_primary DESC, m.id
     `;
   } else if (nodeType === 'customer') {
-    // カスタマに供給する工場のサプライヤーの購買伝票
+    // カスタマに供給する工場のサプライヤーの資材情報
     query = `
       MATCH (s:Supplier)-[:SUPPLIES_TO]->(p:Plant)-[:SUPPLIES_TO*1..2]->(c:Customer {id: '${nodeId}'})
-      MATCH (s)<-[:ISSUED_TO]-(po:PurchaseOrder)
+      MATCH (s)-[r:SUPPLIES]->(m:Material)
       RETURN DISTINCT
-        po.id as id,
-        po.line_item as lineItem,
-        po.order_date as orderDate,
-        po.status as status,
-        po.amount as amount,
+        m.id as id,
+        m.description as lineItem,
+        CASE WHEN r.is_primary THEN 'primary' ELSE 'alternative' END as orderDate,
+        CASE WHEN r.is_primary THEN 'active' ELSE 'standby' END as status,
+        m.unit_price as amount,
         s.id as supplierId,
         s.name as supplierName
-      ORDER BY po.order_date DESC
+      ORDER BY r.is_primary DESC, m.id
     `;
   }
 
@@ -336,15 +359,15 @@ async function getProducts() {
   // サブクエリパターンを使用
   const query = `
     MATCH (p:Product)
-    OPTIONAL MATCH (p)-[:MANUFACTURED_AT]->(pl:Plant)
-    RETURN 
+    OPTIONAL MATCH (p)-[:PRODUCED_AT]->(pl:Plant)
+    RETURN
       p.id as id,
-      p.name as name,
-      p.type as type,
-      p.unit as unit,
+      p.description as name,
+      p.product_group as type,
+      p.margin_rate as unit,
       pl.id as plantId,
       pl.name as plantName
-    ORDER BY p.name
+    ORDER BY p.description
   `;
   const result = await executeQuery(query);
   return result.results || [];
@@ -352,18 +375,18 @@ async function getProducts() {
 
 /**
  * 工場で製造される製品とそのBOM（部品構成）を取得
- * 製造製品のBOMには、実際の供給元工場（SUPPLIES_PRODUCT）を表示
+ * 製造製品のBOMには、実際の供給元（SUPPLIES経由のSupplier）を表示
  * @param plantId 対象工場ID
  */
 async function getProductsWithBOM(plantId: string) {
   // この工場で製造される製品を取得
   const productsQuery = `
-    MATCH (prod:Product)-[:MANUFACTURED_AT]->(pl:Plant {id: '${plantId}'})
-    RETURN 
+    MATCH (prod:Product)-[:PRODUCED_AT]->(pl:Plant {id: '${plantId}'})
+    RETURN
       prod.id as id,
-      prod.name as name,
-      prod.type as type,
-      prod.unit as unit
+      prod.description as name,
+      prod.product_group as type,
+      prod.margin_rate as unit
   `;
   const productsResult = await executeQuery(productsQuery);
   const products = productsResult.results || [];
@@ -373,18 +396,17 @@ async function getProductsWithBOM(plantId: string) {
   }
 
   // 各製品のBOM（部品構成）を取得
-  // 供給元は SUPPLIES_PRODUCT 関係から取得（実際の供給関係）
+  // HAS_COMPONENT (Product→Material) + SUPPLIES (Supplier→Material) で供給元を取得
   const productIds = products.map((p: any) => `'${p.id}'`).join(', ');
   const bomQuery = `
-    MATCH (parent:Product)-[c:CONSISTS_OF]->(child:Product)
+    MATCH (parent:Product)-[c:HAS_COMPONENT]->(m:Material)
     WHERE parent.id IN [${productIds}]
-    OPTIONAL MATCH (supplier:Plant)-[sp:SUPPLIES_PRODUCT]->(child)
-    WHERE sp.to_node = '${plantId}'
-    RETURN 
+    OPTIONAL MATCH (supplier:Supplier)-[:SUPPLIES]->(m)
+    RETURN
       parent.id as parentId,
-      child.id as componentId,
-      child.name as componentName,
-      child.type as componentType,
+      m.id as componentId,
+      m.description as componentName,
+      m.material_group as componentType,
       c.quantity as quantity,
       supplier.id as supplierPlantId,
       supplier.name as supplierPlantName
@@ -448,42 +470,45 @@ async function getImpactedProducts(plantId: string, impactedPlantIds: string[]) 
   let manufacturedProducts: any[] = [];
   if (isDirectlyImpacted) {
     const manufacturedQuery = `
-      MATCH (prod:Product)-[:MANUFACTURED_AT]->(pl:Plant {id: '${plantId}'})
-      RETURN prod.id as productId, prod.name as productName
+      MATCH (prod:Product)-[:PRODUCED_AT]->(pl:Plant {id: '${plantId}'})
+      RETURN prod.id as productId, prod.description as productName
     `;
     const manufacturedResult = await executeQuery(manufacturedQuery);
     manufacturedProducts = manufacturedResult.results || [];
   }
 
-  // 上流から供給される製品（SUPPLIES_PRODUCT関係）を取得
-  // supplierPlantIdを含めて、どの工場からの供給かを特定
+  // 上流から供給される資材経由で影響を受ける製品を取得
+  // SUPPLIES (Supplier→Material) + HAS_COMPONENT (Product→Material)
+  // 影響工場に関連するサプライヤーからの供給を特定
   const directQuery = `
-    MATCH (upstream:Plant)-[sp:SUPPLIES_PRODUCT]->(prod:Product)
-    WHERE upstream.id IN [${idsString}] AND sp.to_node = '${plantId}'
+    MATCH (upstream:Plant)<-[:SUPPLIES_TO]-(s:Supplier)-[:SUPPLIES]->(m:Material)<-[:HAS_COMPONENT]-(prod:Product)
+    WHERE upstream.id IN [${idsString}]
+    MATCH (prod)-[:PRODUCED_AT]->(pl:Plant {id: '${plantId}'})
     RETURN DISTINCT
       upstream.id as upstreamId,
       upstream.name as upstreamName,
       prod.id as productId,
-      prod.name as productName,
+      prod.description as productName,
       'direct' as impactType
   `;
   const directResult = await executeQuery(directQuery);
   const directRows = directResult.results || [];
 
   // BOM経由の影響を確認
-  // この工場で製造する製品の部品が、影響工場から供給されているかをチェック
+  // この工場で製造する製品の部品（Material）が、影響工場関連サプライヤーから供給されているかをチェック
   const bomQuery = `
-    MATCH (prod:Product)-[:MANUFACTURED_AT]->(pl:Plant {id: '${plantId}'})
-    MATCH (prod)-[:CONSISTS_OF]->(component:Product)
-    MATCH (upstream:Plant)-[sp:SUPPLIES_PRODUCT]->(component)
-    WHERE upstream.id IN [${idsString}] AND sp.to_node = '${plantId}'
+    MATCH (prod:Product)-[:PRODUCED_AT]->(pl:Plant {id: '${plantId}'})
+    MATCH (prod)-[:HAS_COMPONENT]->(m:Material)
+    MATCH (s:Supplier)-[:SUPPLIES]->(m)
+    MATCH (s)-[:SUPPLIES_TO]->(upstream:Plant)
+    WHERE upstream.id IN [${idsString}]
     RETURN DISTINCT
       upstream.id as upstreamId,
       upstream.name as upstreamName,
-      component.id as productId,
-      component.name as productName,
+      m.id as productId,
+      m.description as productName,
       prod.id as parentProductId,
-      prod.name as parentProductName,
+      prod.description as parentProductName,
       'bom' as impactType
   `;
   const bomResult = await executeQuery(bomQuery);
@@ -506,7 +531,7 @@ async function getImpactedProducts(plantId: string, impactedPlantIds: string[]) 
   const allRows = Array.from(componentMap.values());
 
   // 影響製品IDを抽出（重複排除）
-  const impactedProductIds = [...new Set(allRows.map((r: any) => r.productId))];
+  const impactedProductIds = Array.from(new Set(allRows.map((r: any) => r.productId)));
   
   // 直接影響工場の製造製品も追加
   manufacturedProducts.forEach((p: any) => {
@@ -574,14 +599,14 @@ async function getSubstitutePlants(plantId: string, targetProductIds?: string[])
   // 影響工場の情報と製造製品を取得
   const impactedQuery = `
     MATCH (impacted:Plant {id: '${plantId}'})
-    OPTIONAL MATCH (prod:Product)-[:MANUFACTURED_AT]->(impacted)
-    RETURN 
+    OPTIONAL MATCH (prod:Product)-[:PRODUCED_AT]->(impacted)
+    RETURN
       impacted.id as plantId,
       impacted.name as plantName,
       impacted.capacity as capacity,
       impacted.lat as lat,
       impacted.lon as lon,
-      collect({id: prod.id, name: prod.name, type: prod.type}) as products
+      collect({id: prod.id, name: prod.description, type: prod.product_group}) as products
   `;
   const impactedResult = await executeQuery(impactedQuery);
   const impactedInfo = impactedResult.results?.[0];
@@ -601,16 +626,17 @@ async function getSubstitutePlants(plantId: string, targetProductIds?: string[])
   // 同じ製品を製造できる非影響工場を取得
   const productIds = impactedProducts.map((p: any) => `'${p.id}'`).join(', ');
   const candidateQuery = `
-    MATCH (prod:Product)-[:MANUFACTURED_AT]->(candidate:Plant)
+    MATCH (prod:Product)-[:PRODUCED_AT]->(candidate:Plant)
     WHERE prod.id IN [${productIds}] AND candidate.id <> '${plantId}'
-    RETURN 
+    OPTIONAL MATCH (candidate)-[:LOCATED_IN]->(c:Country)
+    RETURN
       candidate.id as id,
       candidate.name as name,
       candidate.capacity as capacity,
       candidate.lat as lat,
       candidate.lon as lon,
-      candidate.location_name as locationName,
-      collect(DISTINCT {id: prod.id, name: prod.name}) as products
+      candidate.country_code as locationName,
+      collect(DISTINCT {id: prod.id, name: prod.description}) as products
     ORDER BY candidate.capacity DESC
   `;
   const candidateResult = await executeQuery(candidateQuery);
@@ -699,11 +725,11 @@ async function getSubstitutePlants(plantId: string, targetProductIds?: string[])
       }
 
       // 全製品カバー＋キャパシティ充足で終了
-      const allCovered = [...reqProducts].every(pid => coveredProducts.has(pid));
+      const allCovered = Array.from(reqProducts).every(pid => coveredProducts.has(pid));
       if (allCovered && totalCap >= reqCapacity) break;
     }
 
-    const allCovered = [...reqProducts].every(pid => coveredProducts.has(pid));
+    const allCovered = Array.from(reqProducts).every(pid => coveredProducts.has(pid));
     const totalDistance = selected.reduce((sum, s) => sum + s.distanceToCustomers, 0);
 
     return {

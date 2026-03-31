@@ -32,18 +32,19 @@ class EarthquakeStack(Stack):
         construct_id: str,
         *,
         polling_interval_minutes: int = 60,
+        s3_bucket_name: str = "supply-chain-earthquake-data-454953018734",
         **kwargs
     ) -> None:
         # polling_interval_minutesを除外してからStackに渡す
         super().__init__(scope, construct_id, **kwargs)
-        
+
         self.polling_interval_minutes = polling_interval_minutes
 
         # 既存のS3バケットを参照
         self.bucket = s3.Bucket.from_bucket_name(
             self,
             "EarthquakeDataBucket",
-            bucket_name="supply-chain-earthquake-data"
+            bucket_name=s3_bucket_name,
         )
 
         # Lambda関数作成

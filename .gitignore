@@ -69,4 +69,6 @@ response.json
 amplify_outputs*
 amplifyconfiguration*
 
-scripts/*
+# Exclude generated/downloaded artifacts but keep scripts themselves
+scripts/__pycache__/
+AWSCLIV2.pkg
