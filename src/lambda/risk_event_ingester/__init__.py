@@ -2,6 +2,11 @@
 
 EventBridgeスケジュールでトリガーされ、プロバイダーをポーリングして
 RiskEventServiceで取り込む。
+
+デプロイメントパッケージ構成:
+  __init__.py     (このファイル — ハンドラーエントリポイント)
+  service.py      (RiskEventService — 共通取り込みパス)
+  providers.py    (P2PQuakeProvider等)
 """
 from __future__ import annotations
 
@@ -12,14 +17,8 @@ from typing import Any
 
 import boto3
 
-# 同一デプロイメントパッケージ内のモジュールをインポート
-# Lambda環境では /var/task にコードが配置される
-import sys
-sys.path.insert(0, os.path.dirname(__file__))
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'risk_event_service'))
-
-from risk_event_service import RiskEventService, RawRiskEvent
-from risk_event_service.providers import P2PQuakeProvider, ProviderCursor
+from service import RiskEventService, RawRiskEvent
+from providers import P2PQuakeProvider, ProviderCursor
 
 
 BUCKET_NAME = os.environ.get('BUCKET_NAME', '')
@@ -28,12 +27,14 @@ NEPTUNE_REGION = os.environ.get('NEPTUNE_REGION', 'us-west-2')
 REGISTRY_TABLE = os.environ.get('REGISTRY_TABLE', 'risk-event-registry')
 LOCK_TABLE = os.environ.get('LOCK_TABLE', 'risk-event-ingest-lock')
 CURSOR_TABLE = os.environ.get('CURSOR_TABLE', 'risk-event-provider-cursors')
+PROPAGATOR_FUNCTION_NAME = os.environ.get('PROPAGATOR_FUNCTION_NAME', '')
 
 
 def handler(event: dict[str, Any], context: Any) -> dict[str, Any]:
     """EventBridgeトリガーのハンドラー"""
     neptune_client = boto3.client('neptune-graph', region_name=NEPTUNE_REGION)
     s3_client = boto3.client('s3')
+    lambda_client = boto3.client('lambda', region_name=NEPTUNE_REGION)
     dynamodb = boto3.resource('dynamodb', region_name=NEPTUNE_REGION)
 
     lock_table = dynamodb.Table(LOCK_TABLE)
@@ -47,6 +48,8 @@ def handler(event: dict[str, Any], context: Any) -> dict[str, Any]:
         s3_bucket=BUCKET_NAME,
         lock_table=lock_table,
         registry_table=registry_table,
+        propagator_function_name=PROPAGATOR_FUNCTION_NAME,
+        lambda_client=lambda_client,
     )
 
     providers = [
@@ -56,6 +59,7 @@ def handler(event: dict[str, Any], context: Any) -> dict[str, Any]:
     total_created = 0
     total_updated = 0
     total_skipped = 0
+    total_errors = 0
 
     for provider in providers:
         cursor = _load_cursor(cursor_table, provider.provider_id)
@@ -80,6 +84,7 @@ def handler(event: dict[str, Any], context: Any) -> dict[str, Any]:
                 else:
                     total_skipped += 1
             except Exception as e:
+                total_errors += 1
                 print(json.dumps({
                     'level': 'ERROR',
                     'message': '取り込みエラー',
@@ -96,12 +101,13 @@ def handler(event: dict[str, Any], context: Any) -> dict[str, Any]:
             'created': total_created,
             'updated': total_updated,
             'skipped': total_skipped,
+            'errors': total_errors,
         },
     }
 
 
 def _load_cursor(table: Any, provider_id: str) -> ProviderCursor:
-    """DynamoDBからカーソルを読み込み"""
+    """DynamoDBからカーソルを読み込み（version付き）"""
     try:
         response = table.get_item(Key={'providerId': provider_id})
         item = response.get('Item')
@@ -110,6 +116,7 @@ def _load_cursor(table: Any, provider_id: str) -> ProviderCursor:
                 last_source_event_id=item.get('lastSourceEventId'),
                 last_updated_at=item.get('lastUpdatedAt'),
                 provider_specific=item.get('providerSpecific', {}),
+                version=int(item.get('version', 0)),
             )
     except Exception as e:
         print(f'カーソル読み込みエラー: {e}')
@@ -118,14 +125,49 @@ def _load_cursor(table: Any, provider_id: str) -> ProviderCursor:
 
 def _save_cursor(table: Any, provider_id: str, cursor: ProviderCursor) -> None:
     """DynamoDBにカーソルを保存（楽観的ロック付き）"""
+    now = datetime.now(timezone.utc).isoformat()
+    next_version = cursor.version + 1
+
     try:
-        table.put_item(Item={
-            'providerId': provider_id,
-            'lastSourceEventId': cursor.last_source_event_id or '',
-            'lastUpdatedAt': cursor.last_updated_at or '',
-            'providerSpecific': cursor.provider_specific,
-            'lastFetchedAt': datetime.now(timezone.utc).isoformat(),
-            'version': 1,
-        })
+        if cursor.version == 0:
+            # 初回書き込み: アイテムが存在しないことを確認
+            table.put_item(
+                Item={
+                    'providerId': provider_id,
+                    'lastSourceEventId': cursor.last_source_event_id or '',
+                    'lastUpdatedAt': cursor.last_updated_at or '',
+                    'providerSpecific': cursor.provider_specific,
+                    'lastFetchedAt': now,
+                    'version': next_version,
+                },
+                ConditionExpression='attribute_not_exists(providerId)',
+            )
+        else:
+            # 更新: version一致を確認して書き込み
+            table.update_item(
+                Key={'providerId': provider_id},
+                UpdateExpression=(
+                    'SET lastSourceEventId = :sid, lastUpdatedAt = :upd, '
+                    'providerSpecific = :ps, lastFetchedAt = :fetched, '
+                    'version = :next'
+                ),
+                ExpressionAttributeValues={
+                    ':sid': cursor.last_source_event_id or '',
+                    ':upd': cursor.last_updated_at or '',
+                    ':ps': cursor.provider_specific,
+                    ':fetched': now,
+                    ':next': next_version,
+                    ':current': cursor.version,
+                },
+                ConditionExpression='version = :current',
+            )
     except Exception as e:
-        print(f'カーソル保存エラー: {e}')
+        if hasattr(e, 'response') and e.response.get('Error', {}).get('Code') == 'ConditionalCheckFailedException':
+            print(json.dumps({
+                'level': 'WARNING',
+                'message': 'カーソル楽観的ロック衝突 — 別のrunが先行更新済み',
+                'providerId': provider_id,
+                'version': cursor.version,
+            }))
+        else:
+            print(f'カーソル保存エラー: {e}')

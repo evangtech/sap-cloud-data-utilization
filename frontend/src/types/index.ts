@@ -161,7 +161,7 @@ export interface GraphRiskEvent {
   admin1: string | null;
   admin2: string | null;
   locationName: string;
-  affectedCountryCodes: string[];
+  affectedCountryCodes?: string[];
   startDate: string;
   endDate: string | null;
   updatedAt: string;

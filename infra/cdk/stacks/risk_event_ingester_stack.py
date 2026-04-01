@@ -24,6 +24,7 @@ class RiskEventIngesterStack(Stack):
         neptune_graph_id: str = 'g-844qqbri1a',
         neptune_region: str = 'us-west-2',
         polling_interval_minutes: int = 60,
+        propagator_function_name: str = 'impact-propagator',
         **kwargs,
     ) -> None:
         super().__init__(scope, construct_id, **kwargs)
@@ -78,6 +79,7 @@ class RiskEventIngesterStack(Stack):
                 'REGISTRY_TABLE': self.registry_table.table_name,
                 'LOCK_TABLE': self.lock_table.table_name,
                 'CURSOR_TABLE': self.cursor_table.table_name,
+                'PROPAGATOR_FUNCTION_NAME': propagator_function_name,
             },
         )
 

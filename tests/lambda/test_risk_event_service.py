@@ -9,28 +9,33 @@ import json
 from unittest.mock import MagicMock, patch, PropertyMock
 from io import BytesIO
 
-# src/lambda をパスに追加
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..', 'src', 'lambda'))
+# src/lambda/risk_event_ingester をパスに追加
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..', 'src', 'lambda', 'risk_event_ingester'))
 
-from risk_event_service import RiskEventService, RawRiskEvent, IngestResult
+from service import RiskEventService, RawRiskEvent, IngestResult, NeptuneWriteError
 
 
 def _make_service(
-    neptune_results: list | None = None,
     lock_table: MagicMock | None = None,
     registry_table: MagicMock | None = None,
     s3_client: MagicMock | None = None,
 ) -> RiskEventService:
-    """テスト用サービスインスタンスを作成"""
+    """テスト用サービスインスタンスを作成（upsertは成功レスポンスを返す）"""
     mock_neptune = MagicMock()
-    if neptune_results is not None:
-        mock_neptune.execute_query.return_value = {
-            'payload': BytesIO(json.dumps({'results': neptune_results}).encode()),
-        }
-    else:
-        mock_neptune.execute_query.return_value = {
+
+    def mock_execute(**kwargs):
+        query = kwargs.get('queryString', '')
+        if 'MERGE' in query:
+            return {
+                'payload': BytesIO(json.dumps(
+                    {'results': [{'id': 'mock-event-id'}]},
+                ).encode()),
+            }
+        return {
             'payload': BytesIO(json.dumps({'results': []}).encode()),
         }
+
+    mock_neptune.execute_query.side_effect = mock_execute
     return RiskEventService(
         neptune_client=mock_neptune,
         graph_id='test-graph',
@@ -146,13 +151,17 @@ class TestNormalize:
 class TestIngest:
     def test_new_event_creates_and_returns_created(self):
         """新規イベントの取り込み → action='created'"""
-        # Neptune execute_queryの呼び出しごとに異なるレスポンスを返す
         mock_neptune = MagicMock()
-        call_count = 0
 
         def mock_execute(**kwargs):
-            nonlocal call_count
-            call_count += 1
+            query = kwargs.get('queryString', '')
+            # upsert MERGE → 成功レスポンス
+            if 'MERGE' in query:
+                return {
+                    'payload': BytesIO(json.dumps(
+                        {'results': [{'id': 'test-event-id'}]},
+                    ).encode()),
+                }
             return {
                 'payload': BytesIO(json.dumps({'results': []}).encode()),
             }
@@ -166,11 +175,48 @@ class TestIngest:
         raw = _make_raw_event()
         result = service.ingest(raw)
         assert result.action == 'created'
-        assert result.event_id != ''
+        assert result.event_id == 'test-event-id'
+
+    def test_neptune_write_failure_raises(self):
+        """Neptune書き込み失敗 → NeptuneWriteError（レジストリ/S3は更新されない）"""
+        mock_neptune = MagicMock()
+        mock_neptune.execute_query.side_effect = Exception('Neptune接続エラー')
+
+        mock_registry = MagicMock()
+        mock_registry.get_item.return_value = {}  # レジストリにも無い
+
+        service = RiskEventService(
+            neptune_client=mock_neptune,
+            graph_id='test',
+            registry_table=mock_registry,
+        )
+
+        raw = _make_raw_event()
+        import pytest
+        with pytest.raises(Exception):
+            service.ingest(raw)
+        # レジストリが更新されていないことを確認
+        mock_registry.put_item.assert_not_called()
+
+    def test_neptune_empty_return_raises_write_error(self):
+        """Neptune MERGEが空リスト返却 → NeptuneWriteError"""
+        mock_neptune = MagicMock()
+        mock_neptune.execute_query.return_value = {
+            'payload': BytesIO(json.dumps({'results': []}).encode()),
+        }
+
+        service = RiskEventService(
+            neptune_client=mock_neptune,
+            graph_id='test',
+        )
+
+        raw = _make_raw_event()
+        import pytest
+        with pytest.raises(NeptuneWriteError):
+            service.ingest(raw)
 
     def test_lock_failure_returns_skipped(self):
         """ロック取得失敗 → action='skipped'"""
-        # ConditionalCheckFailedExceptionをシミュレート
         mock_lock = MagicMock()
         error_response = {'Error': {'Code': 'ConditionalCheckFailedException'}}
         mock_exception = type('ClientError', (Exception,), {
@@ -185,11 +231,30 @@ class TestIngest:
 
     def test_archive_failure_still_returns_success(self):
         """アーカイブ失敗 → イベントは作成済み、action='created'のまま"""
+        mock_neptune = MagicMock()
+
+        def mock_execute(**kwargs):
+            query = kwargs.get('queryString', '')
+            if 'MERGE' in query:
+                return {
+                    'payload': BytesIO(json.dumps(
+                        {'results': [{'id': 'test-id'}]},
+                    ).encode()),
+                }
+            return {
+                'payload': BytesIO(json.dumps({'results': []}).encode()),
+            }
+
+        mock_neptune.execute_query.side_effect = mock_execute
         mock_s3 = MagicMock()
         mock_s3.put_object.side_effect = Exception('S3エラー')
 
-        service = _make_service(s3_client=mock_s3)
+        service = RiskEventService(
+            neptune_client=mock_neptune,
+            graph_id='test',
+            s3_client=mock_s3,
+            s3_bucket='test-bucket',
+        )
         raw = _make_raw_event()
         result = service.ingest(raw)
-        # Neptune書き込み（コミットポイント）は成功しているのでcreated
         assert result.action == 'created'

@@ -52,6 +52,7 @@ async function getRiskEvents(args: {
            re.sourceUrl AS sourceUrl,
            re.sourceSnippetHash AS sourceSnippetHash,
            re.confidence AS confidence,
+           re.affectedCountryCodes AS affectedCountryCodes,
            re.latestPropagationRunId AS latestPropagationRunId,
            re.latestPropagationSequence AS latestPropagationSequence,
            toString(re.propagationStartedAt) AS propagationStartedAt,

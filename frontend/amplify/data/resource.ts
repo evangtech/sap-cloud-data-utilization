@@ -733,6 +733,7 @@ const schema = a.schema({
     propagationCompletedAt: a.string(),
     categoryName: a.string(),
     parentCategory: a.string(),
+    affectedCountryCodes: a.json(),
   }),
 
   ImpactResult: a.customType({
@@ -777,6 +778,7 @@ const schema = a.schema({
     revenueExposure: a.float(),
     combinedOperationalRisk: a.float(),
     activeEventCount: a.integer(),
+    topEvent: a.json(),
   }),
 
   WarehouseResult: a.customType({
