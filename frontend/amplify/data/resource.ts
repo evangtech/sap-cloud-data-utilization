@@ -44,8 +44,22 @@ export const eventQueryFunction = defineFunction({
 });
 
 /**
+ * Neptuneリスク分析クエリ関数を定義
+ * amplify/functions/neptune-risk-query/handler.ts を参照
+ */
+export const neptuneRiskQueryFunction = defineFunction({
+  name: 'neptune-risk-query',
+  entry: '../functions/neptune-risk-query/handler.ts',
+  environment: {
+    NEPTUNE_GRAPH_ID: 'g-844qqbri1a',
+    NEPTUNE_REGION: 'us-west-2',
+  },
+  timeoutSeconds: 30,
+});
+
+/**
  * サプライチェーン地図可視化システム - データスキーマ定義
- * 
+ *
  * データソース:
  * - Neptune Analytics: グラフデータ（工場、サプライヤー、カスタマ、関係）
  * - EventTable: リスクイベントデータ（DynamoDB外部テーブル）
@@ -680,6 +694,215 @@ const schema = a.schema({
     })
     .returns(a.ref('RiskEvent'))
     .handler(a.handler.function(eventQueryFunction))
+    .authorization((allow) => [allow.publicApiKey()]),
+
+  // ========================================
+  // リスク分析カスタム型
+  // ========================================
+
+  GraphRiskEvent: a.customType({
+    id: a.string().required(),
+    sourceEventId: a.string(),
+    dedupeKey: a.string(),
+    title: a.string().required(),
+    description: a.string(),
+    eventType: a.string().required(),
+    source: a.string(),
+    severity: a.integer().required(),
+    lifecycleStatus: a.string().required(),
+    reviewStatus: a.string().required(),
+    reviewedBy: a.string(),
+    reviewedAt: a.string(),
+    trustLevel: a.string(),
+    latitude: a.float(),
+    longitude: a.float(),
+    radiusKm: a.float(),
+    geoScopeType: a.string(),
+    admin1: a.string(),
+    admin2: a.string(),
+    locationName: a.string(),
+    startDate: a.string(),
+    endDate: a.string(),
+    updatedAt: a.string(),
+    sourceUrl: a.string(),
+    sourceSnippetHash: a.string(),
+    confidence: a.float(),
+    latestPropagationRunId: a.string(),
+    latestPropagationSequence: a.integer(),
+    propagationStartedAt: a.string(),
+    propagationCompletedAt: a.string(),
+    categoryName: a.string(),
+    parentCategory: a.string(),
+  }),
+
+  ImpactResult: a.customType({
+    eventId: a.string().required(),
+    eventTitle: a.string(),
+    nodeId: a.string().required(),
+    nodeType: a.string(),
+    nodeName: a.string(),
+    severity: a.integer(),
+    impactType: a.string(),
+    status: a.string(),
+    estimatedRecoveryDays: a.integer(),
+    costImpactPct: a.float(),
+    cachedImpactAmount: a.float(),
+    impactConfidence: a.float(),
+    assessmentMethod: a.string(),
+    firstDetectedAt: a.string(),
+    lastUpdatedAt: a.string(),
+    resolvedAt: a.string(),
+    propagationRunId: a.string(),
+    overrideReviewStatus: a.string(),
+  }),
+
+  DisruptsResult: a.customType({
+    eventId: a.string().required(),
+    eventTitle: a.string(),
+    hsCode: a.string().required(),
+    originCountry: a.string(),
+    destinationCountry: a.string(),
+    regulatorBody: a.string(),
+    effectiveDate: a.string(),
+    expiryDate: a.string(),
+    tariffIncreasePct: a.float(),
+    exportRestricted: a.boolean(),
+  }),
+
+  NodeRiskScoreResult: a.customType({
+    nodeId: a.string().required(),
+    nodeType: a.string().required(),
+    baselineRisk: a.float(),
+    liveEventRisk: a.float(),
+    revenueExposure: a.float(),
+    combinedOperationalRisk: a.float(),
+    activeEventCount: a.integer(),
+  }),
+
+  WarehouseResult: a.customType({
+    id: a.string().required(),
+    name: a.string(),
+    countryCode: a.string(),
+    latitude: a.float(),
+    longitude: a.float(),
+    capacity: a.float(),
+    status: a.string(),
+    countryName: a.string(),
+  }),
+
+  LogisticsHubResult: a.customType({
+    id: a.string().required(),
+    name: a.string(),
+    type: a.string(),
+    countryCode: a.string(),
+    latitude: a.float(),
+    longitude: a.float(),
+    capacity: a.string(),
+    status: a.string(),
+    countryName: a.string(),
+  }),
+
+  RouteThroughResult: a.customType({
+    fromId: a.string().required(),
+    fromType: a.string(),
+    fromName: a.string(),
+    toId: a.string().required(),
+    toName: a.string(),
+    transitDays: a.integer(),
+    isPrimary: a.boolean(),
+  }),
+
+  // ========================================
+  // リスク分析クエリ
+  // ========================================
+
+  getRiskEvents: a
+    .query()
+    .arguments({
+      lifecycleStatuses: a.string().array(),
+      reviewStatuses: a.string().array(),
+      eventTypes: a.string().array(),
+      minSeverity: a.integer(),
+    })
+    .returns(a.ref('GraphRiskEvent').array())
+    .handler(a.handler.function(neptuneRiskQueryFunction))
+    .authorization((allow) => [allow.publicApiKey()]),
+
+  getActiveImpacts: a
+    .query()
+    .arguments({ nodeId: a.string(), eventId: a.string() })
+    .returns(a.ref('ImpactResult').array())
+    .handler(a.handler.function(neptuneRiskQueryFunction))
+    .authorization((allow) => [allow.publicApiKey()]),
+
+  getImpactsByEvent: a
+    .query()
+    .arguments({ eventId: a.string().required() })
+    .returns(a.ref('ImpactResult').array())
+    .handler(a.handler.function(neptuneRiskQueryFunction))
+    .authorization((allow) => [allow.publicApiKey()]),
+
+  getActiveDisrupts: a
+    .query()
+    .returns(a.ref('DisruptsResult').array())
+    .handler(a.handler.function(neptuneRiskQueryFunction))
+    .authorization((allow) => [allow.publicApiKey()]),
+
+  getDisruptsByEvent: a
+    .query()
+    .arguments({ eventId: a.string().required() })
+    .returns(a.ref('DisruptsResult').array())
+    .handler(a.handler.function(neptuneRiskQueryFunction))
+    .authorization((allow) => [allow.publicApiKey()]),
+
+  getNodeRiskScores: a
+    .query()
+    .returns(a.ref('NodeRiskScoreResult').array())
+    .handler(a.handler.function(neptuneRiskQueryFunction))
+    .authorization((allow) => [allow.publicApiKey()]),
+
+  getCorridorRisks: a
+    .query()
+    .returns(a.json().array())
+    .handler(a.handler.function(neptuneRiskQueryFunction))
+    .authorization((allow) => [allow.publicApiKey()]),
+
+  getRecoveryDashboard: a
+    .query()
+    .returns(a.json().array())
+    .handler(a.handler.function(neptuneRiskQueryFunction))
+    .authorization((allow) => [allow.publicApiKey()]),
+
+  getRiskEventHistory: a
+    .query()
+    .arguments({ nodeId: a.string().required() })
+    .returns(a.json().array())
+    .handler(a.handler.function(neptuneRiskQueryFunction))
+    .authorization((allow) => [allow.publicApiKey()]),
+
+  getRiskEventChain: a
+    .query()
+    .arguments({ eventId: a.string().required() })
+    .returns(a.json().array())
+    .handler(a.handler.function(neptuneRiskQueryFunction))
+    .authorization((allow) => [allow.publicApiKey()]),
+
+  getWarehouses: a
+    .query()
+    .returns(a.ref('WarehouseResult').array())
+    .handler(a.handler.function(neptuneRiskQueryFunction))
+    .authorization((allow) => [allow.publicApiKey()]),
+
+  getLogisticsHubs: a
+    .query()
+    .returns(a.ref('LogisticsHubResult').array())
+    .handler(a.handler.function(neptuneRiskQueryFunction))
+    .authorization((allow) => [allow.publicApiKey()]),
+
+  getRoutesThrough: a
+    .query()
+    .returns(a.ref('RouteThroughResult').array())
+    .handler(a.handler.function(neptuneRiskQueryFunction))
     .authorization((allow) => [allow.publicApiKey()]),
 });
 

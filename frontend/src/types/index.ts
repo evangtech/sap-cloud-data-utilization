@@ -93,6 +93,201 @@ export interface Customer {
   impactLevel?: 'direct' | 'downstream' | 'none';
 }
 
+// ========================================
+// リスクイベント関連の型定義
+// ========================================
+
+/**
+ * 倉庫
+ */
+export interface Warehouse {
+  id: string;
+  name: string;
+  countryCode: string;
+  latitude: number;
+  longitude: number;
+  capacity: number;
+  status: string;
+}
+
+/**
+ * 物流拠点（港湾・空港・国境検問所）
+ */
+export interface LogisticsHub {
+  id: string;
+  name: string;
+  type: 'port' | 'airport' | 'border_crossing';
+  countryCode: string;
+  latitude: number;
+  longitude: number;
+  capacity: string | null;
+  status: 'operational' | 'disrupted' | 'closed';
+}
+
+/**
+ * 物流ルート（ノード→物流拠点）
+ */
+export interface RouteThrough {
+  fromId: string;
+  fromType: 'Plant' | 'Supplier' | 'Warehouse';
+  fromName: string;
+  toId: string;
+  toName: string;
+  transitDays: number;
+  isPrimary: boolean;
+}
+
+/**
+ * グラフ上のリスクイベント
+ */
+export interface GraphRiskEvent {
+  id: string;
+  sourceEventId: string;
+  dedupeKey: string;
+  title: string;
+  description: string;
+  eventType: string;
+  source: string;
+  severity: number;
+  lifecycleStatus: 'detected' | 'active' | 'recovering' | 'resolved';
+  reviewStatus: 'pending' | 'confirmed' | 'watching' | 'dismissed';
+  reviewedBy: string | null;
+  reviewedAt: string | null;
+  trustLevel: 'trusted_machine' | 'ai_unverified' | 'analyst';
+  latitude: number;
+  longitude: number;
+  radiusKm: number;
+  geoScopeType: 'point' | 'city' | 'region' | 'country' | 'multi_country';
+  admin1: string | null;
+  admin2: string | null;
+  locationName: string;
+  affectedCountryCodes: string[];
+  startDate: string;
+  endDate: string | null;
+  updatedAt: string;
+  sourceUrl: string | null;
+  sourceSnippetHash: string | null;
+  confidence: number;
+  latestPropagationRunId: string | null;
+  latestPropagationSequence: number;
+  propagationStartedAt: string | null;
+  propagationCompletedAt: string | null;
+  categoryName?: string;
+  parentCategory?: string;
+}
+
+/**
+ * ノード別リスクスコア
+ */
+export interface NodeRiskScore {
+  nodeId: string;
+  nodeType: 'Plant' | 'Supplier' | 'Warehouse' | 'LogisticsHub';
+  baselineRisk: number;
+  liveEventRisk: number;
+  revenueExposure: number;
+  combinedOperationalRisk: number;
+  activeEventCount: number;
+  topEvent: { title: string; severity: number } | null;
+}
+
+/**
+ * ノード視点のインパクト（ノードIDでインデックスするストアキャッシュ用）
+ */
+export interface NodeImpact {
+  eventId: string;
+  eventTitle: string;
+  severity: number;
+  impactType: 'direct' | 'downstream';
+  status: 'active' | 'recovering' | 'resolved';
+  estimatedRecoveryDays: number | null;
+  costImpactPct: number | null;
+  cachedImpactAmount: number;
+  impactConfidence: number;
+  assessmentMethod: 'automated' | 'manual_override' | 'ai_assisted';
+  firstDetectedAt: string | null;
+  lastUpdatedAt: string | null;
+  resolvedAt: string | null;
+  propagationRunId: string | null;
+  overrideReviewStatus: 'active' | 'stale' | 'dismissed' | null;
+}
+
+/**
+ * イベント視点のインパクト（イベントIDでインデックスするストアキャッシュ用）
+ */
+export interface EventImpact {
+  eventId: string;
+  eventTitle: string;
+  nodeId: string;
+  nodeType: string;
+  nodeName: string;
+  severity: number;
+  impactType: 'direct' | 'downstream';
+  status: 'active' | 'recovering' | 'resolved';
+  cachedImpactAmount: number;
+  impactConfidence: number;
+  costImpactPct: number | null;
+  assessmentMethod: string;
+}
+
+/**
+ * DISRUPTSエッジ（リスクイベント→HSCode）
+ */
+export interface DisruptsEdge {
+  eventId: string;
+  eventTitle: string;
+  hsCode: string;
+  originCountry: string;
+  destinationCountry: string;
+  regulatorBody: string | null;
+  effectiveDate: string;
+  expiryDate: string | null;
+  tariffIncreasePct: number;
+  exportRestricted: boolean;
+}
+
+/**
+ * リスクイベントフィルタ状態
+ */
+export interface RiskEventFilterState {
+  eventTypes: string[];
+  minSeverity: number;
+  maxSeverity: number;
+  lifecycleStatuses: string[];
+  reviewStatuses: string[];
+  dateRange: { start: string | null; end: string | null };
+}
+
+/**
+ * サプライルートリスク
+ */
+export interface CorridorRisk {
+  origin: { id: string; name: string; type: string };
+  destination: { id: string; name: string; type: string };
+  chokePointScore: number;
+  avgRouteRisk: number;
+  hops: number;
+  riskyNodes: { name: string; risk: number; exposure: number }[];
+}
+
+/**
+ * リスクシナリオスナップショット（シミュレーション入力）
+ */
+export interface RiskScenarioSnapshot {
+  disabledSuppliers: Set<string>;
+  tariffOverrides: Map<string, number>;
+  fxOverrides: Map<string, number>;
+  volumeMultipliers: Map<string, number>;
+  metadata: {
+    sourceEventIds: string[];
+    snapshotDate: string;
+    description: string;
+  };
+}
+
+// ========================================
+// その他のノード型（既存）
+// ========================================
+
 /**
  * ロケーション（地理情報）
  */
@@ -237,12 +432,13 @@ export interface PlantImpactStatus {
  */
 export interface MapMarker {
   id: string;
-  type: 'plant' | 'supplier' | 'customer' | 'location';
+  type: 'plant' | 'supplier' | 'customer' | 'warehouse' | 'logisticsHub' | 'location';
   name: string;
   latitude: number;
   longitude: number;
   impactLevel: 'direct' | 'downstream' | 'none';
   details?: Record<string, any>;
+  riskScore?: NodeRiskScore | null;
 }
 
 /**
