@@ -3,6 +3,7 @@ import { createPinia } from 'pinia';
 import { Amplify } from 'aws-amplify';
 import App from './App.vue';
 import router from './router';
+import './assets/main.css';
 import outputs from '../amplify_outputs.json';
 
 // Amplify設定

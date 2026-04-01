@@ -539,8 +539,6 @@ function onSwitchToggle(doSwitch: boolean) {
 </template>
 
 <style scoped>
-@import url('https://fonts.googleapis.com/css2?family=BIZ+UDGothic:wght@400;700&family=Noto+Sans+JP:wght@400;500;700&display=swap');
-
 /* ========================================
    Design D — Japanese Corporate Style
    Navy #1b2838 / Gold #b8860b / BIZ UDGothic
@@ -550,13 +548,13 @@ function onSwitchToggle(doSwitch: boolean) {
 .sim-page {
   display: grid;
   grid-template-columns: 300px 1fr;
-  height: calc(100vh - 52px);
+  height: calc(100vh - var(--shell-topbar-height));
   overflow: hidden;
-  font-family: 'BIZ UDGothic', 'Noto Sans JP', 'Hiragino Kaku Gothic ProN', sans-serif;
+  font-family: var(--font-sans);
   font-size: 13px;
   line-height: 1.6;
-  color: #1a1a1a;
-  background: #ffffff;
+  color: var(--color-text-primary);
+  background: var(--color-surface);
   -webkit-font-smoothing: antialiased;
 }
 
@@ -589,8 +587,8 @@ function onSwitchToggle(doSwitch: boolean) {
 
 /* ===== Parameters Panel ===== */
 .params-panel {
-  border-right: 1px solid #d0d5dd;
-  background: #fafbfc;
+  border-right: 1px solid var(--color-border);
+  background: var(--color-shell-panel);
   overflow: hidden;
   display: flex;
   flex-direction: column;
@@ -605,7 +603,8 @@ function onSwitchToggle(doSwitch: boolean) {
   align-items: center;
   justify-content: space-between;
   padding: 10px 20px;
-  background: #1b2838;
+  background: var(--color-shell-navy);
+  border-bottom: 1px solid rgba(212, 168, 67, 0.16);
 }
 .params-title {
   font-size: 13px;
@@ -617,16 +616,16 @@ function onSwitchToggle(doSwitch: boolean) {
 /* Param Groups */
 .param-group {
   padding: 16px 20px;
-  border-bottom: 1px solid #d0d5dd;
+  border-bottom: 1px solid var(--color-border);
 }
 .param-group:last-child { border-bottom: none; }
 .group-label {
   font-size: 12px;
   font-weight: 700;
-  color: #1b2838;
+  color: var(--color-shell-navy);
   margin-bottom: 12px;
   padding-left: 10px;
-  border-left: 3px solid #1b2838;
+  border-left: 3px solid var(--color-shell-navy);
   line-height: 1.4;
 }
 
@@ -647,7 +646,7 @@ function onSwitchToggle(doSwitch: boolean) {
 }
 .slider-val {
   font-weight: 700;
-  color: #1b2838;
+  color: var(--color-shell-navy);
   flex-shrink: 0;
   min-width: 52px;
   text-align: right;
@@ -678,7 +677,7 @@ function onSwitchToggle(doSwitch: boolean) {
   height: 4px;
   -webkit-appearance: none;
   appearance: none;
-  background: #d0d5dd;
+  background: var(--color-border);
   border-radius: 2px;
   outline: none;
   cursor: pointer;
@@ -687,7 +686,7 @@ function onSwitchToggle(doSwitch: boolean) {
   -webkit-appearance: none;
   width: 14px; height: 14px;
   border-radius: 50%;
-  background: #1b2838;
+  background: var(--color-shell-navy);
   cursor: pointer;
   border: 2px solid #ffffff;
   box-shadow: 0 1px 3px rgba(0,0,0,0.2);
@@ -701,7 +700,7 @@ function onSwitchToggle(doSwitch: boolean) {
 .range-slider::-moz-range-thumb {
   width: 14px; height: 14px;
   border-radius: 50%;
-  background: #1b2838;
+  background: var(--color-shell-navy);
   cursor: pointer;
   border: 2px solid #ffffff;
   box-shadow: 0 1px 3px rgba(0,0,0,0.2);
@@ -825,23 +824,23 @@ function onSwitchToggle(doSwitch: boolean) {
 }
 .btn-primary {
   padding: 8px 16px;
-  background: #1b2838;
+  background: var(--color-shell-navy);
   color: #ffffff;
   font-size: 12px;
   font-weight: 700;
-  border: 1px solid #1b2838;
+  border: 1px solid var(--color-shell-navy);
 }
 .btn-primary:hover { background: #2d3f52; }
 .btn-ghost {
   padding: 5px 10px;
   background: #ffffff;
-  color: #1b2838;
-  border: 1px solid #1b2838;
+  color: var(--color-shell-navy);
+  border: 1px solid rgba(212, 168, 67, 0.35);
   font-size: 11px;
   font-weight: 700;
   letter-spacing: 0.04em;
 }
-.btn-ghost:hover { background: #1b2838; color: #ffffff; }
+.btn-ghost:hover { background: var(--color-shell-navy); color: #ffffff; }
 .btn-xs { padding: 3px 8px; font-size: 10px; }
 
 .empty-hint { font-size: 12px; color: #8a8a8a; font-style: italic; }
@@ -851,6 +850,7 @@ function onSwitchToggle(doSwitch: boolean) {
 .results-area {
   overflow-y: auto;
   padding: 24px 32px 40px;
+  background: var(--color-background);
 }
 
 /* Data Quality Warning */

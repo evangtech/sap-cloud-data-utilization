@@ -1,0 +1,97 @@
+/**
+ * ローカルフォント定義 — Google Fonts CDN依存を排除
+ *
+ * 企業環境では外部CDNリクエストがブロックされることが多いため、
+ * フォントファイルをローカルにホスティングしています。
+ *
+ * フォント一覧:
+ * - BIZ UDGothic (400, 700) — 日本企業向けゴシック体
+ * - Noto Sans JP (300-700, 可変フォント) — 汎用日本語ゴシック体
+ * - Inter (400-600, 可変フォント) — 欧文UI向けサンセリフ体
+ */
+
+/* ========== BIZ UDGothic ========== */
+
+@font-face {
+  font-family: 'BIZ UDGothic';
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url('./fonts/BIZUDGothic-Regular.woff2') format('woff2');
+}
+
+@font-face {
+  font-family: 'BIZ UDGothic';
+  font-style: normal;
+  font-weight: 700;
+  font-display: swap;
+  src: url('./fonts/BIZUDGothic-Bold.woff2') format('woff2');
+}
+
+/* ========== Noto Sans JP（可変フォント: wght 100-900）========== */
+
+@font-face {
+  font-family: 'Noto Sans JP';
+  font-style: normal;
+  font-weight: 300;
+  font-display: swap;
+  src: url('./fonts/NotoSansJP-Variable.woff2') format('woff2');
+}
+
+@font-face {
+  font-family: 'Noto Sans JP';
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url('./fonts/NotoSansJP-Variable.woff2') format('woff2');
+}
+
+@font-face {
+  font-family: 'Noto Sans JP';
+  font-style: normal;
+  font-weight: 500;
+  font-display: swap;
+  src: url('./fonts/NotoSansJP-Variable.woff2') format('woff2');
+}
+
+@font-face {
+  font-family: 'Noto Sans JP';
+  font-style: normal;
+  font-weight: 600;
+  font-display: swap;
+  src: url('./fonts/NotoSansJP-Variable.woff2') format('woff2');
+}
+
+@font-face {
+  font-family: 'Noto Sans JP';
+  font-style: normal;
+  font-weight: 700;
+  font-display: swap;
+  src: url('./fonts/NotoSansJP-Variable.woff2') format('woff2');
+}
+
+/* ========== Inter（可変フォント: opsz 14-32, wght 100-900）========== */
+
+@font-face {
+  font-family: 'Inter';
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url('./fonts/Inter-Variable.woff2') format('woff2');
+}
+
+@font-face {
+  font-family: 'Inter';
+  font-style: normal;
+  font-weight: 500;
+  font-display: swap;
+  src: url('./fonts/Inter-Variable.woff2') format('woff2');
+}
+
+@font-face {
+  font-family: 'Inter';
+  font-style: normal;
+  font-weight: 600;
+  font-display: swap;
+  src: url('./fonts/Inter-Variable.woff2') format('woff2');
+}

@@ -8,6 +8,11 @@ const sidebarCollapsed = ref(false);
 const useOwnLayout = computed(() => route.meta?.useOwnLayout === true);
 const breadcrumb = computed(() => (route.meta?.breadcrumb as string) || '');
 
+type ShellPageMeta = {
+  title: string;
+  subtitle: string;
+};
+
 const navItems = [
   {
     to: '/simulation',
@@ -29,6 +34,37 @@ const navItems = [
   },
 ];
 
+const shellPageMeta: Record<string, ShellPageMeta> = {
+  simulation: {
+    title: 'What-if コストシミュレーション',
+    subtitle: 'Supply Chain Cost Simulator',
+  },
+  notifications: {
+    title: 'リスク通知一覧',
+    subtitle: 'Risk Event Monitor',
+  },
+  factories: {
+    title: '工場一覧',
+    subtitle: 'Factory Directory',
+  },
+  earthquakes: {
+    title: '地震情報',
+    subtitle: 'Seismic Event Feed',
+  },
+  'node-detail': {
+    title: 'ノード詳細',
+    subtitle: 'Supply Chain Node Intelligence',
+  },
+};
+
+const currentPageMeta = computed<ShellPageMeta>(() => {
+  const routeName = String(route.name ?? '');
+  return shellPageMeta[routeName] || {
+    title: breadcrumb.value || 'サプライチェーン分析',
+    subtitle: 'Supply Chain Intelligence Workspace',
+  };
+});
+
 function isActive(routeName: string): boolean {
   return route.name === routeName;
 }
@@ -45,12 +81,15 @@ function isActive(routeName: string): boolean {
       <div class="sidebar-brand">
         <div class="brand-icon">
           <svg width="22" height="22" viewBox="0 0 24 24" fill="none">
-            <path d="M12 2L2 7l10 5 10-5-10-5z" fill="#f97316" opacity="0.9"/>
-            <path d="M2 17l10 5 10-5" stroke="#f97316" stroke-width="2" fill="none"/>
-            <path d="M2 12l10 5 10-5" stroke="#f97316" stroke-width="2" fill="none" opacity="0.6"/>
+            <path d="M12 2L2 7l10 5 10-5-10-5z" fill="#b8860b" opacity="0.92"/>
+            <path d="M2 17l10 5 10-5" stroke="#d4a843" stroke-width="2" fill="none"/>
+            <path d="M2 12l10 5 10-5" stroke="#d4a843" stroke-width="2" fill="none" opacity="0.65"/>
           </svg>
         </div>
-        <span v-if="!sidebarCollapsed" class="brand-text">SCM Suite</span>
+        <div v-if="!sidebarCollapsed" class="brand-copy">
+          <span class="brand-eyebrow">NAVIGATION</span>
+          <span class="brand-text">業務メニュー</span>
+        </div>
       </div>
 
       <nav class="sidebar-nav">
@@ -93,14 +132,12 @@ function isActive(routeName: string): boolean {
       <!-- Top bar -->
       <header class="topbar">
         <div class="topbar-left">
-          <span class="breadcrumb-text" v-if="breadcrumb">{{ breadcrumb }}</span>
-        </div>
-        <div class="topbar-right">
-          <div class="user-avatar">
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
-              <circle cx="12" cy="8" r="4"/>
-              <path d="M20 21a8 8 0 0 0-16 0"/>
-            </svg>
+          <div class="topbar-copy">
+            <span class="breadcrumb-text" v-if="breadcrumb">{{ breadcrumb }}</span>
+            <div class="topbar-heading">
+              <h1 class="topbar-title">{{ currentPageMeta.title }}</h1>
+              <span class="topbar-subtitle">{{ currentPageMeta.subtitle }}</span>
+            </div>
           </div>
         </div>
       </header>
@@ -123,107 +160,110 @@ function isActive(routeName: string): boolean {
 
 <style scoped>
 /* ========================================
-   App Shell Layout
+   Design D Shell
    ======================================== */
 .app-shell {
   display: flex;
   min-height: 100vh;
-  background: var(--color-background);
+  background: #ffffff;
 }
 
 /* ========================================
    Sidebar
    ======================================== */
 .sidebar {
-  width: 220px;
-  background: var(--color-sidebar-bg);
+  width: 300px;
+  background: #fafbfc;
   display: flex;
   flex-direction: column;
   flex-shrink: 0;
-  transition: width var(--transition-base);
+  transition: width 0.2s ease;
   z-index: 20;
+  border-right: 1px solid #d0d5dd;
 }
 .sidebar.collapsed {
-  width: 64px;
+  width: 72px;
 }
 
 /* Brand */
 .sidebar-brand {
   display: flex;
   align-items: center;
-  gap: 10px;
-  padding: 16px 16px 20px;
-  border-bottom: 1px solid rgba(255,255,255,0.06);
+  gap: 12px;
+  padding: 10px 20px;
+  background: #1b2838;
 }
 .brand-icon {
   display: flex;
   align-items: center;
   justify-content: center;
   flex-shrink: 0;
-  width: 32px;
-  height: 32px;
+  width: 36px;
+  height: 36px;
+  color: #d4a843;
+}
+.brand-copy {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+.brand-eyebrow {
+  font-size: 10px;
+  line-height: 1.2;
+  letter-spacing: 0.12em;
+  color: rgba(255, 255, 255, 0.48);
 }
 .brand-text {
-  font-size: var(--text-sm);
-  font-weight: 600;
-  color: var(--color-sidebar-text-active);
-  letter-spacing: 0.02em;
+  font-size: 13px;
+  font-weight: 700;
+  color: #ffffff;
+  letter-spacing: 0.08em;
   white-space: nowrap;
 }
 
 /* Navigation */
 .sidebar-nav {
   flex: 1;
-  padding: 12px 8px;
+  padding: 0;
   display: flex;
   flex-direction: column;
-  gap: 2px;
+  gap: 0;
 }
 
 .nav-item {
   display: flex;
   align-items: center;
-  gap: 10px;
-  padding: 9px 12px;
-  border-radius: var(--radius-md);
-  color: var(--color-sidebar-text);
+  gap: 12px;
+  padding: 12px 20px;
+  border-bottom: 1px solid #d0d5dd;
+  color: #4a4a4a;
   text-decoration: none;
-  font-size: var(--text-sm);
-  font-weight: 450;
-  transition: all var(--transition-fast);
-  position: relative;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  transition: background 0.15s ease, color 0.15s ease;
   white-space: nowrap;
   overflow: hidden;
 }
 .nav-item:hover {
-  background: var(--color-sidebar-hover);
-  color: var(--color-sidebar-text-active);
+  background: #f0f2f5;
+  color: #1b2838;
 }
 .nav-item.active {
-  background: rgba(249, 115, 22, 0.1);
-  color: var(--color-sidebar-text-active);
-}
-.nav-item.active::before {
-  content: '';
-  position: absolute;
-  left: 0;
-  top: 6px;
-  bottom: 6px;
-  width: 3px;
-  background: var(--color-sidebar-accent);
-  border-radius: 0 2px 2px 0;
+  background: #eef1f5;
+  color: #1b2838;
 }
 
 .nav-icon {
   flex-shrink: 0;
-  opacity: 0.7;
+  opacity: 0.85;
 }
 .nav-item:hover .nav-icon,
 .nav-item.active .nav-icon {
   opacity: 1;
 }
 .nav-item.active .nav-icon {
-  color: var(--color-sidebar-accent);
+  color: #1b2838;
 }
 
 .nav-label {
@@ -236,15 +276,15 @@ function isActive(routeName: string): boolean {
   display: flex;
   align-items: center;
   justify-content: center;
-  margin: 8px;
-  padding: 8px;
-  border-radius: var(--radius-md);
-  color: var(--color-sidebar-text);
-  transition: all var(--transition-fast);
+  margin: 0;
+  padding: 12px;
+  color: #4a4a4a;
+  transition: background 0.15s ease, color 0.15s ease;
+  border-top: 1px solid #d0d5dd;
 }
 .sidebar-toggle:hover {
-  background: var(--color-sidebar-hover);
-  color: var(--color-sidebar-text-active);
+  background: #f0f2f5;
+  color: #1b2838;
 }
 
 /* ========================================
@@ -256,42 +296,64 @@ function isActive(routeName: string): boolean {
   flex-direction: column;
   min-width: 0;
   overflow: hidden;
+  background: #ffffff;
 }
 
 /* Top bar */
 .topbar {
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  height: 52px;
+  height: 48px;
   padding: 0 24px;
-  background: var(--color-surface);
-  border-bottom: 1px solid var(--color-border);
+  background: #1b2838;
+  border-bottom: 1px solid rgba(212, 168, 67, 0.22);
   flex-shrink: 0;
+  position: relative;
+}
+.topbar::after {
+  content: '';
+  position: absolute;
+  inset: auto 0 0;
+  height: 2px;
+  background: linear-gradient(90deg, #b8860b 0%, #d4a843 50%, #b8860b 100%);
 }
 .topbar-left {
   display: flex;
   align-items: center;
 }
+.topbar-copy {
+  display: flex;
+  align-items: baseline;
+  gap: 18px;
+  min-width: 0;
+}
 .breadcrumb-text {
-  font-size: var(--text-sm);
-  font-weight: 500;
-  color: var(--color-text-secondary);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  color: rgba(255, 255, 255, 0.48);
+  text-transform: uppercase;
+  white-space: nowrap;
 }
-.topbar-right {
+.topbar-heading {
   display: flex;
-  align-items: center;
-  gap: 12px;
+  align-items: baseline;
+  gap: 14px;
+  min-width: 0;
 }
-.user-avatar {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 32px;
-  height: 32px;
-  border-radius: 50%;
-  background: var(--color-gray-100);
-  color: var(--color-gray-500);
+.topbar-title {
+  font-size: 16px;
+  line-height: 1.2;
+  font-weight: 700;
+  color: #ffffff;
+  letter-spacing: 0.05em;
+  white-space: nowrap;
+}
+.topbar-subtitle {
+  font-size: 11px;
+  color: rgba(255, 255, 255, 0.5);
+  letter-spacing: 0.02em;
+  white-space: nowrap;
 }
 
 /* Page content */
@@ -299,6 +361,7 @@ function isActive(routeName: string): boolean {
   flex: 1;
   overflow-y: auto;
   overflow-x: hidden;
+  background: #ffffff;
 }
 
 /* ========================================
@@ -306,9 +369,10 @@ function isActive(routeName: string): boolean {
    ======================================== */
 @media (max-width: 1024px) {
   .sidebar {
-    width: 64px;
+    width: 72px;
   }
   .brand-text,
+  .brand-eyebrow,
   .nav-label {
     display: none;
   }
@@ -317,11 +381,21 @@ function isActive(routeName: string): boolean {
   }
   .sidebar-brand {
     justify-content: center;
-    padding: 16px 8px 20px;
+    padding: 10px;
   }
   .nav-item {
     justify-content: center;
-    padding: 10px;
+    padding: 12px 10px;
+  }
+  .topbar {
+    padding: 0 16px;
+  }
+  .topbar-subtitle,
+  .breadcrumb-text {
+    display: none;
+  }
+  .topbar-title {
+    font-size: 14px;
   }
 }
 </style>

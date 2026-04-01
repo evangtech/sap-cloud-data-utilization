@@ -153,11 +153,14 @@ function handleKeydown(e: KeyboardEvent) {
 <style scoped>
 .nl-search {
   background: white;
-  border: 1px solid #e2e8f0;
-  border-radius: 12px;
-  padding: 8px;
+  border-top: 3px solid #1b2838;
+  border-left: 1px solid #d0d5dd;
+  border-right: 1px solid #d0d5dd;
+  border-bottom: 1px solid #d0d5dd;
+  border-radius: 0 0 4px 4px;
+  padding: 8px 10px;
   box-shadow: 0 4px 16px rgba(0, 0, 0, 0.08);
-  transition: all 0.2s ease;
+  transition: box-shadow 0.15s ease;
   min-width: 320px;
   max-width: 560px;
 }
@@ -174,7 +177,7 @@ function handleKeydown(e: KeyboardEvent) {
 }
 
 .search-icon {
-  color: #94a3b8;
+  color: #8a8a8a;
   flex-shrink: 0;
   display: flex;
   align-items: center;
@@ -186,13 +189,13 @@ function handleKeydown(e: KeyboardEvent) {
   border: none;
   outline: none;
   font-size: 13px;
-  color: #1e293b;
+  color: #1a1a1a;
   background: transparent;
   padding: 6px 0;
 }
 
 .search-input::placeholder {
-  color: #94a3b8;
+  color: #8a8a8a;
 }
 
 .clear-btn {
@@ -201,8 +204,8 @@ function handleKeydown(e: KeyboardEvent) {
   justify-content: center;
   width: 24px;
   height: 24px;
-  color: #94a3b8;
-  border-radius: 6px;
+  color: #8a8a8a;
+  border-radius: 3px;
   flex-shrink: 0;
   cursor: pointer;
   background: none;
@@ -211,18 +214,18 @@ function handleKeydown(e: KeyboardEvent) {
 }
 
 .clear-btn:hover {
-  background: #f1f5f9;
-  color: #64748b;
+  background: #eef1f5;
+  color: #4a4a4a;
 }
 
 .search-btn {
   padding: 6px 14px;
   font-size: 12px;
-  font-weight: 600;
+  font-weight: 700;
   color: white;
-  background: linear-gradient(135deg, #3b82f6, #2563eb);
+  background: #1b2838;
   border: none;
-  border-radius: 8px;
+  border-radius: 3px;
   cursor: pointer;
   flex-shrink: 0;
   transition: all 0.15s;
@@ -232,7 +235,7 @@ function handleKeydown(e: KeyboardEvent) {
 }
 
 .search-btn:hover:not(:disabled) {
-  background: linear-gradient(135deg, #2563eb, #1d4ed8);
+  background: #2d3f52;
 }
 
 .search-btn:disabled {
@@ -246,32 +249,32 @@ function handleKeydown(e: KeyboardEvent) {
   flex-wrap: wrap;
   gap: 6px;
   padding: 8px 4px 4px;
-  border-top: 1px solid #f1f5f9;
+  border-top: 1px solid #e8eaed;
   margin-top: 8px;
   align-items: center;
 }
 
 .sample-label {
   font-size: 11px;
-  color: #94a3b8;
-  font-weight: 500;
+  color: #8a8a8a;
+  font-weight: 700;
 }
 
 .sample-chip {
   font-size: 11px;
-  color: #64748b;
-  background: #f8fafc;
-  border: 1px solid #e2e8f0;
+  color: #4a4a4a;
+  background: #ffffff;
+  border: 1px solid #d0d5dd;
   padding: 3px 10px;
-  border-radius: 12px;
+  border-radius: 3px;
   cursor: pointer;
   transition: all 0.15s;
 }
 
 .sample-chip:hover {
-  background: #eff6ff;
-  border-color: #bfdbfe;
-  color: #2563eb;
+  background: #eef1f5;
+  border-color: #1b2838;
+  color: #1b2838;
 }
 
 /* 結果ステータス */
@@ -280,13 +283,13 @@ function handleKeydown(e: KeyboardEvent) {
   align-items: center;
   gap: 8px;
   padding: 8px 4px 2px;
-  border-top: 1px solid #f1f5f9;
+  border-top: 1px solid #e8eaed;
   margin-top: 8px;
   font-size: 12px;
 }
 
 .result-status.loading {
-  color: #64748b;
+  color: #4a4a4a;
 }
 
 .result-status.error {
@@ -295,7 +298,7 @@ function handleKeydown(e: KeyboardEvent) {
 
 .result-status.filter,
 .result-status.cypher {
-  color: #334155;
+  color: #1a1a1a;
 }
 
 .result-status.no_result {
@@ -314,21 +317,21 @@ function handleKeydown(e: KeyboardEvent) {
 
 .result-count {
   font-size: 11px;
-  font-weight: 600;
-  background: #dbeafe;
-  color: #1d4ed8;
+  font-weight: 700;
+  background: #eef1f5;
+  color: #1b2838;
   padding: 2px 8px;
-  border-radius: 6px;
+  border-radius: 3px;
   flex-shrink: 0;
 }
 
 .cypher-badge {
   font-size: 10px;
-  font-weight: 600;
-  background: #f0fdf4;
-  color: #15803d;
+  font-weight: 700;
+  background: #fffde7;
+  color: #92400e;
   padding: 2px 6px;
-  border-radius: 4px;
+  border-radius: 3px;
   flex-shrink: 0;
   cursor: pointer;
 }
@@ -337,7 +340,7 @@ function handleKeydown(e: KeyboardEvent) {
 .query-display {
   padding: 6px 8px;
   margin-top: 4px;
-  background: #f8fafc;
+  background: #fafbfc;
   border-radius: 6px;
   border: 1px solid #e2e8f0;
 }

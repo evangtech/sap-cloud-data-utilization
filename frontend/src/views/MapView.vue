@@ -174,7 +174,10 @@ onMounted(async () => {
               <path d="M2 12l10 5 10-5"/>
             </svg>
           </div>
-          <span class="brand-title">サプライチェーン可視化</span>
+          <div class="brand-copy">
+            <span class="brand-eyebrow">SUPPLY CHAIN MAP</span>
+            <span class="brand-title">サプライチェーン可視化</span>
+          </div>
         </div>
 
         <!-- 地震アラートバナー -->
@@ -298,17 +301,26 @@ onMounted(async () => {
 .app-header {
   display: flex;
   flex-direction: column;
-  background: var(--color-surface);
-  border-bottom: 1px solid var(--color-border);
+  background: var(--color-shell-navy);
+  border-bottom: 1px solid rgba(212, 168, 67, 0.22);
   flex-shrink: 0;
   z-index: 100;
+  position: relative;
+}
+
+.app-header::after {
+  content: '';
+  position: absolute;
+  inset: auto 0 0;
+  height: 2px;
+  background: linear-gradient(90deg, var(--color-shell-gold) 0%, var(--color-shell-gold-soft) 50%, var(--color-shell-gold) 100%);
 }
 
 .header-top {
   display: flex;
   align-items: center;
-  height: 48px;
-  padding: 0 var(--space-4);
+  height: var(--shell-topbar-height);
+  padding: 0 20px;
 }
 
 .header-stats {
@@ -321,7 +333,7 @@ onMounted(async () => {
 .header-brand {
   display: flex;
   align-items: center;
-  gap: var(--space-3);
+  gap: 12px;
   flex-shrink: 0;
 }
 
@@ -331,15 +343,30 @@ onMounted(async () => {
   justify-content: center;
   width: 36px;
   height: 36px;
-  background: var(--color-primary-600);
-  color: white;
-  border-radius: var(--radius-lg);
+  background: rgba(255, 255, 255, 0.03);
+  color: var(--color-shell-gold-soft);
+  border: 1px solid rgba(212, 168, 67, 0.24);
+  border-radius: 4px;
+}
+
+.brand-copy {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.brand-eyebrow {
+  font-size: 10px;
+  line-height: 1.2;
+  letter-spacing: 0.12em;
+  color: rgba(255, 255, 255, 0.48);
 }
 
 .brand-title {
-  font-size: var(--text-4xl);
-  font-weight: 600;
-  color: var(--color-text-primary);
+  font-size: 15px;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  color: #ffffff;
 }
 
 .header-actions {
@@ -357,11 +384,11 @@ onMounted(async () => {
   margin-left: auto;
   margin-right: auto;
   padding: 4px 12px;
-  background: #fef3c7;
-  border: 1px solid #f59e0b;
-  border-radius: 8px;
+  background: #fffde7;
+  border: 1px solid rgba(184, 134, 11, 0.42);
+  border-radius: 4px;
   font-size: 12px;
-  color: #92400e;
+  color: #7b5b09;
   white-space: nowrap;
 }
 
@@ -390,9 +417,14 @@ onMounted(async () => {
 .status-indicator {
   display: flex;
   align-items: center;
-  gap: var(--space-2);
-  font-size: var(--text-sm);
-  color: var(--color-text-secondary);
+  gap: 8px;
+  padding: 6px 10px;
+  border: 1px solid rgba(212, 168, 67, 0.24);
+  border-radius: 3px;
+  background: rgba(255, 255, 255, 0.04);
+  font-size: 11px;
+  font-weight: 700;
+  color: #ffffff;
 }
 
 .status-dot {
@@ -409,14 +441,15 @@ onMounted(async () => {
   justify-content: center;
   width: 36px;
   height: 36px;
-  color: var(--color-text-secondary);
-  border-radius: var(--radius-md);
+  color: rgba(255, 255, 255, 0.8);
+  border-radius: 4px;
+  border: 1px solid rgba(212, 168, 67, 0.18);
   transition: all var(--transition-fast);
 }
 
 .icon-btn:hover {
-  background: var(--color-gray-100);
-  color: var(--color-text-primary);
+  background: rgba(255, 255, 255, 0.06);
+  color: #ffffff;
 }
 
 /* メインコンテンツ */
@@ -453,7 +486,7 @@ onMounted(async () => {
   width: 360px;
   flex-shrink: 0;
   border-right: 1px solid var(--color-border);
-  background: var(--color-surface);
+  background: var(--color-shell-panel);
   transition: all var(--transition-base);
   overflow: hidden;
 }
@@ -533,18 +566,22 @@ onMounted(async () => {
   display: flex;
   align-items: center;
   gap: 4px;
-  padding: 4px 10px;
-  font-size: var(--text-sm);
-  color: var(--color-text-secondary);
+  padding: 6px 10px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  color: #ffffff;
   text-decoration: none;
-  border-radius: var(--radius-md);
+  border-radius: 3px;
+  border: 1px solid rgba(212, 168, 67, 0.24);
   transition: all var(--transition-fast);
   position: relative;
+  background: rgba(255, 255, 255, 0.04);
 }
 
 .nav-notification-link:hover {
-  background: var(--color-gray-100);
-  color: var(--color-text-primary);
+  background: rgba(255, 255, 255, 0.06);
+  color: #ffffff;
 }
 
 /* 通知バッジ（赤色ピル型） */
@@ -558,9 +595,30 @@ onMounted(async () => {
   background: #dc2626;
   color: #fff;
   font-size: 11px;
-  font-weight: 600;
+  font-weight: 700;
   line-height: 1;
   border-radius: 9px;
+}
+
+@media (max-width: 1024px) {
+  .header-top {
+    padding: 0 14px;
+  }
+
+  .brand-eyebrow,
+  .eq-alert,
+  .status-indicator,
+  .header-stats {
+    display: none;
+  }
+
+  .brand-title {
+    font-size: 13px;
+  }
+
+  .sidebar {
+    width: 320px;
+  }
 }
 
 .slide-enter-active, .slide-leave-active {

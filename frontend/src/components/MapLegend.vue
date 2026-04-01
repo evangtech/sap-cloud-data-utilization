@@ -183,8 +183,11 @@ function getPlantStatusClass(impactLevel: string | undefined): string {
 <style scoped>
 .legend {
   background: white;
-  border: 1px solid var(--color-gray-200);
-  border-radius: 12px;
+  border-top: 3px solid #1b2838;
+  border-left: 1px solid #d0d5dd;
+  border-right: 1px solid #d0d5dd;
+  border-bottom: 1px solid #d0d5dd;
+  border-radius: 0 0 4px 4px;
   padding: 12px;
   min-width: 200px;
   max-width: 260px;
@@ -202,7 +205,7 @@ function getPlantStatusClass(impactLevel: string | undefined): string {
 
 .divider {
   height: 1px;
-  background: var(--color-gray-200);
+  background: #d0d5dd;
   margin: 10px 0;
 }
 
@@ -216,13 +219,13 @@ function getPlantStatusClass(impactLevel: string | undefined): string {
   align-items: center;
   justify-content: space-between;
   padding: 6px 4px;
-  border-radius: 8px;
+  border-radius: 3px;
   cursor: pointer;
   transition: background 0.15s ease;
 }
 
 .layer-header:hover {
-  background: var(--color-gray-50);
+  background: #fafbfc;
 }
 
 .layer-toggle {
@@ -236,12 +239,12 @@ function getPlantStatusClass(impactLevel: string | undefined): string {
 .layer-toggle input[type="checkbox"] {
   width: 14px;
   height: 14px;
-  accent-color: #3b82f6;
+  accent-color: #1b2838;
   cursor: pointer;
 }
 
 .chevron {
-  color: var(--color-gray-400);
+  color: #8a8a8a;
   transition: transform 0.2s ease;
 }
 
@@ -304,24 +307,24 @@ function getPlantStatusClass(impactLevel: string | undefined): string {
 /* ラベル */
 .label {
   font-size: 13px;
-  font-weight: 500;
-  color: var(--color-gray-700);
+  font-weight: 700;
+  color: #1a1a1a;
   flex: 1;
 }
 
 .label-sm {
   font-size: 11px;
   font-weight: 500;
-  color: var(--color-gray-600);
+  color: #4a4a4a;
 }
 
 .count {
   font-size: 10px;
-  font-weight: 600;
-  color: var(--color-gray-500);
-  background: var(--color-gray-100);
+  font-weight: 700;
+  color: #4a4a4a;
+  background: #eef1f5;
   padding: 2px 6px;
-  border-radius: 6px;
+  border-radius: 3px;
   margin-left: auto;
   margin-right: 8px;
 }
@@ -339,19 +342,19 @@ function getPlantStatusClass(impactLevel: string | undefined): string {
 
 .bulk-actions button {
   font-size: 10px;
-  font-weight: 500;
-  color: var(--color-gray-600);
-  background: var(--color-gray-50);
-  border: 1px solid var(--color-gray-200);
+  font-weight: 700;
+  color: #4a4a4a;
+  background: #ffffff;
+  border: 1px solid #d0d5dd;
   padding: 3px 8px;
-  border-radius: 4px;
+  border-radius: 3px;
   cursor: pointer;
   transition: all 0.15s ease;
 }
 
 .bulk-actions button:hover {
-  background: var(--color-gray-100);
-  color: var(--color-gray-800);
+  background: #eef1f5;
+  color: #1b2838;
 }
 
 .item-list {
@@ -382,12 +385,12 @@ function getPlantStatusClass(impactLevel: string | undefined): string {
 .item-row input[type="checkbox"] {
   width: 12px;
   height: 12px;
-  accent-color: #3b82f6;
+  accent-color: #1b2838;
 }
 
 .item-name {
   font-size: 11px;
-  color: var(--color-gray-600);
+  color: #4a4a4a;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;

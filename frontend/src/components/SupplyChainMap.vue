@@ -48,6 +48,11 @@ const COLORS = {
   edgeToCustomer: '#22c55e',
 };
 
+const POPUP_FONT = "'Noto Sans JP','BIZ UDGothic',sans-serif";
+const POPUP_LINK_STYLE = "display:block;margin-top:12px;padding:8px 0;text-align:center;font-size:12px;font-weight:700;color:#1b2838;background:#ffffff;border:1px solid #1b2838;border-radius:3px;text-decoration:none;cursor:pointer;";
+const POPUP_LINK_HOVER_IN = "this.style.background='#1b2838';this.style.color='#ffffff'";
+const POPUP_LINK_HOVER_OUT = "this.style.background='#ffffff';this.style.color='#1b2838'";
+
 function initMap() {
   if (!mapContainer.value || map) return;
 
@@ -75,40 +80,40 @@ function createPlantPopup(plant: Plant): string {
   
   let alertHtml = '';
   if (plant.impactLevel === 'direct') {
-    alertHtml = `<div style="display:flex;align-items:center;gap:6px;padding:8px 10px;background:#fef2f2;border-radius:6px;margin-top:12px;">
+    alertHtml = `<div style="display:flex;align-items:center;gap:6px;padding:8px 10px;background:#fff5f5;border:1px solid #fecaca;border-radius:4px;margin-top:12px;">
       <span style="font-size:14px;">⚠️</span>
-      <span style="font-size:11px;font-weight:600;color:#dc2626;">直接影響を受けています</span>
+      <span style="font-size:11px;font-weight:700;color:#c62828;">直接影響を受けています</span>
     </div>`;
   } else if (plant.impactLevel === 'downstream') {
-    alertHtml = `<div style="display:flex;align-items:center;gap:6px;padding:8px 10px;background:#fffbeb;border-radius:6px;margin-top:12px;">
+    alertHtml = `<div style="display:flex;align-items:center;gap:6px;padding:8px 10px;background:#fffde7;border:1px solid #f57f17;border-radius:4px;margin-top:12px;">
       <span style="font-size:14px;">⚠️</span>
-      <span style="font-size:11px;font-weight:600;color:#d97706;">下流影響を受けています</span>
+      <span style="font-size:11px;font-weight:700;color:#b26a00;">下流影響を受けています</span>
     </div>`;
   }
 
   return `
-    <div style="font-family:'Inter',system-ui,sans-serif;width:220px;">
+    <div style="font-family:${POPUP_FONT};width:220px;">
       <div style="display:flex;align-items:center;gap:8px;margin-bottom:12px;">
-        <div style="width:32px;height:32px;background:#eff6ff;border-radius:8px;display:flex;align-items:center;justify-content:center;">
+        <div style="width:32px;height:32px;background:#eef1f5;border-radius:4px;display:flex;align-items:center;justify-content:center;">
           <span style="font-size:16px;">🏭</span>
         </div>
         <div>
-          <div style="font-size:10px;font-weight:600;color:#3b82f6;text-transform:uppercase;letter-spacing:0.05em;">工場</div>
-          <div style="font-size:14px;font-weight:600;color:#111827;">${plant.name}</div>
+          <div style="font-size:10px;font-weight:700;color:#1b2838;text-transform:uppercase;letter-spacing:0.05em;">工場</div>
+          <div style="font-size:14px;font-weight:700;color:#1a1a1a;">${plant.name}</div>
         </div>
       </div>
       <div style="display:flex;flex-direction:column;gap:8px;">
         <div style="display:flex;justify-content:space-between;align-items:center;">
-          <span style="font-size:12px;color:#6b7280;">所在地</span>
-          <span style="font-size:12px;font-weight:500;color:#374151;">${plant.locationName}</span>
+          <span style="font-size:12px;color:#8a8a8a;">所在地</span>
+          <span style="font-size:12px;font-weight:500;color:#1a1a1a;">${plant.locationName}</span>
         </div>
         <div style="display:flex;justify-content:space-between;align-items:center;">
-          <span style="font-size:12px;color:#6b7280;">状態</span>
-          <span style="font-size:11px;font-weight:600;padding:3px 8px;background:${statusBg};color:${statusColor};border:1px solid ${statusBorder};border-radius:4px;">${status}</span>
+          <span style="font-size:12px;color:#8a8a8a;">状態</span>
+          <span style="font-size:11px;font-weight:700;padding:3px 8px;background:${statusBg};color:${statusColor};border:1px solid ${statusBorder};border-radius:3px;">${status}</span>
         </div>
       </div>
       ${alertHtml}
-      <a href="/node/plant/${plant.id}" style="display:block;margin-top:12px;padding:8px 0;text-align:center;font-size:12px;font-weight:600;color:#3b82f6;background:#eff6ff;border:1px solid #bfdbfe;border-radius:6px;text-decoration:none;cursor:pointer;" onmouseover="this.style.background='#dbeafe'" onmouseout="this.style.background='#eff6ff'">詳細を見る →</a>
+      <a href="/node/plant/${plant.id}" style="${POPUP_LINK_STYLE}" onmouseover="${POPUP_LINK_HOVER_IN}" onmouseout="${POPUP_LINK_HOVER_OUT}">詳細を見る →</a>
     </div>
   `;
 }
@@ -116,35 +121,35 @@ function createPlantPopup(plant: Plant): string {
 function createSupplierPopup(supplier: Supplier): string {
   let alertHtml = '';
   if (supplier.impactLevel === 'downstream') {
-    alertHtml = `<div style="display:flex;align-items:center;gap:6px;padding:8px 10px;background:#fffbeb;border-radius:6px;margin-top:12px;">
+    alertHtml = `<div style="display:flex;align-items:center;gap:6px;padding:8px 10px;background:#fffde7;border:1px solid #f57f17;border-radius:4px;margin-top:12px;">
       <span style="font-size:14px;">⚠️</span>
-      <span style="font-size:11px;font-weight:600;color:#d97706;">供給先が影響を受けています</span>
+      <span style="font-size:11px;font-weight:700;color:#b26a00;">供給先が影響を受けています</span>
     </div>`;
   }
 
   return `
-    <div style="font-family:'Inter',system-ui,sans-serif;width:220px;">
+    <div style="font-family:${POPUP_FONT};width:220px;">
       <div style="display:flex;align-items:center;gap:8px;margin-bottom:12px;">
-        <div style="width:32px;height:32px;background:#ecfeff;border-radius:8px;display:flex;align-items:center;justify-content:center;">
+        <div style="width:32px;height:32px;background:#eef1f5;border-radius:4px;display:flex;align-items:center;justify-content:center;">
           <span style="font-size:16px;">📦</span>
         </div>
         <div>
-          <div style="font-size:10px;font-weight:600;color:#0891b2;text-transform:uppercase;letter-spacing:0.05em;">サプライヤー</div>
-          <div style="font-size:14px;font-weight:600;color:#111827;">${supplier.name}</div>
+          <div style="font-size:10px;font-weight:700;color:#1b2838;text-transform:uppercase;letter-spacing:0.05em;">サプライヤー</div>
+          <div style="font-size:14px;font-weight:700;color:#1a1a1a;">${supplier.name}</div>
         </div>
       </div>
       <div style="display:flex;flex-direction:column;gap:8px;">
         <div style="display:flex;justify-content:space-between;align-items:center;">
-          <span style="font-size:12px;color:#6b7280;">国</span>
-          <span style="font-size:12px;font-weight:500;color:#374151;">${supplier.country}</span>
+          <span style="font-size:12px;color:#8a8a8a;">国</span>
+          <span style="font-size:12px;font-weight:500;color:#1a1a1a;">${supplier.country}</span>
         </div>
         <div style="display:flex;justify-content:space-between;align-items:center;">
-          <span style="font-size:12px;color:#6b7280;">地域</span>
-          <span style="font-size:12px;font-weight:500;color:#374151;">${supplier.region}</span>
+          <span style="font-size:12px;color:#8a8a8a;">地域</span>
+          <span style="font-size:12px;font-weight:500;color:#1a1a1a;">${supplier.region}</span>
         </div>
       </div>
       ${alertHtml}
-      <a href="/node/supplier/${supplier.id}" style="display:block;margin-top:12px;padding:8px 0;text-align:center;font-size:12px;font-weight:600;color:#0891b2;background:#ecfeff;border:1px solid #a5f3fc;border-radius:6px;text-decoration:none;cursor:pointer;" onmouseover="this.style.background='#cffafe'" onmouseout="this.style.background='#ecfeff'">詳細を見る →</a>
+      <a href="/node/supplier/${supplier.id}" style="${POPUP_LINK_STYLE}" onmouseover="${POPUP_LINK_HOVER_IN}" onmouseout="${POPUP_LINK_HOVER_OUT}">詳細を見る →</a>
     </div>
   `;
 }
@@ -152,31 +157,31 @@ function createSupplierPopup(supplier: Supplier): string {
 function createCustomerPopup(customer: Customer): string {
   let alertHtml = '';
   if (customer.impactLevel === 'downstream') {
-    alertHtml = `<div style="display:flex;align-items:center;gap:6px;padding:8px 10px;background:#fffbeb;border-radius:6px;margin-top:12px;">
+    alertHtml = `<div style="display:flex;align-items:center;gap:6px;padding:8px 10px;background:#fffde7;border:1px solid #f57f17;border-radius:4px;margin-top:12px;">
       <span style="font-size:14px;">⚠️</span>
-      <span style="font-size:11px;font-weight:600;color:#d97706;">影響を受けています</span>
+      <span style="font-size:11px;font-weight:700;color:#b26a00;">影響を受けています</span>
     </div>`;
   }
 
   return `
-    <div style="font-family:'Inter',system-ui,sans-serif;width:220px;">
+    <div style="font-family:${POPUP_FONT};width:220px;">
       <div style="display:flex;align-items:center;gap:8px;margin-bottom:12px;">
-        <div style="width:32px;height:32px;background:#ecfdf5;border-radius:8px;display:flex;align-items:center;justify-content:center;">
+        <div style="width:32px;height:32px;background:#eef1f5;border-radius:4px;display:flex;align-items:center;justify-content:center;">
           <span style="font-size:16px;">🏢</span>
         </div>
         <div>
-          <div style="font-size:10px;font-weight:600;color:#22c55e;text-transform:uppercase;letter-spacing:0.05em;">カスタマ</div>
-          <div style="font-size:14px;font-weight:600;color:#111827;">${customer.name}</div>
+          <div style="font-size:10px;font-weight:700;color:#1b2838;text-transform:uppercase;letter-spacing:0.05em;">カスタマ</div>
+          <div style="font-size:14px;font-weight:700;color:#1a1a1a;">${customer.name}</div>
         </div>
       </div>
       <div style="display:flex;flex-direction:column;gap:8px;">
         <div style="display:flex;justify-content:space-between;align-items:center;">
-          <span style="font-size:12px;color:#6b7280;">業種</span>
-          <span style="font-size:12px;font-weight:500;color:#374151;">${customer.industry}</span>
+          <span style="font-size:12px;color:#8a8a8a;">業種</span>
+          <span style="font-size:12px;font-weight:500;color:#1a1a1a;">${customer.industry}</span>
         </div>
       </div>
       ${alertHtml}
-      <a href="/node/customer/${customer.id}" style="display:block;margin-top:12px;padding:8px 0;text-align:center;font-size:12px;font-weight:600;color:#22c55e;background:#ecfdf5;border:1px solid #a7f3d0;border-radius:6px;text-decoration:none;cursor:pointer;" onmouseover="this.style.background='#dcfce7'" onmouseout="this.style.background='#ecfdf5'">詳細を見る →</a>
+      <a href="/node/customer/${customer.id}" style="${POPUP_LINK_STYLE}" onmouseover="${POPUP_LINK_HOVER_IN}" onmouseout="${POPUP_LINK_HOVER_OUT}">詳細を見る →</a>
     </div>
   `;
 }
@@ -226,36 +231,36 @@ function createEarthquakePopup(eq: EarthquakeEvent): string {
   }
 
   return `
-    <div style="font-family:'Inter',system-ui,sans-serif;width:240px;">
+    <div style="font-family:${POPUP_FONT};width:240px;">
       <div style="display:flex;align-items:center;gap:8px;margin-bottom:12px;">
-        <div style="width:32px;height:32px;background:#fef2f2;border-radius:8px;display:flex;align-items:center;justify-content:center;">
+        <div style="width:32px;height:32px;background:#fff5f5;border-radius:4px;display:flex;align-items:center;justify-content:center;">
           <span style="font-size:16px;">🔴</span>
         </div>
         <div>
-          <div style="font-size:10px;font-weight:600;color:#dc2626;text-transform:uppercase;letter-spacing:0.05em;">地震</div>
-          <div style="font-size:14px;font-weight:600;color:#111827;">${eq.location}</div>
+          <div style="font-size:10px;font-weight:700;color:#c62828;text-transform:uppercase;letter-spacing:0.05em;">地震</div>
+          <div style="font-size:14px;font-weight:700;color:#1a1a1a;">${eq.location}</div>
         </div>
       </div>
       <div style="display:flex;flex-direction:column;gap:6px;">
         <div style="display:flex;justify-content:space-between;align-items:center;">
-          <span style="font-size:12px;color:#6b7280;">発生日時</span>
-          <span style="font-size:11px;font-weight:500;color:#374151;">${dateStr}</span>
+          <span style="font-size:12px;color:#8a8a8a;">発生日時</span>
+          <span style="font-size:11px;font-weight:500;color:#1a1a1a;">${dateStr}</span>
         </div>
         <div style="display:flex;justify-content:space-between;align-items:center;">
-          <span style="font-size:12px;color:#6b7280;">マグニチュード</span>
-          <span style="font-size:13px;font-weight:700;color:#dc2626;">M${eq.magnitude}</span>
+          <span style="font-size:12px;color:#8a8a8a;">マグニチュード</span>
+          <span style="font-size:13px;font-weight:700;color:#c62828;">M${eq.magnitude}</span>
         </div>
         <div style="display:flex;justify-content:space-between;align-items:center;">
-          <span style="font-size:12px;color:#6b7280;">最大震度</span>
-          <span style="font-size:12px;font-weight:600;padding:2px 8px;background:#fef2f2;color:${scaleColor};border:1px solid #fecaca;border-radius:4px;">震度${eq.maxScale}</span>
+          <span style="font-size:12px;color:#8a8a8a;">最大震度</span>
+          <span style="font-size:12px;font-weight:700;padding:2px 8px;background:#fff5f5;color:${scaleColor};border:1px solid #fecaca;border-radius:3px;">震度${eq.maxScale}</span>
         </div>
         <div style="display:flex;justify-content:space-between;align-items:center;">
-          <span style="font-size:12px;color:#6b7280;">深さ</span>
-          <span style="font-size:12px;font-weight:500;color:#374151;">${eq.depth}km</span>
+          <span style="font-size:12px;color:#8a8a8a;">深さ</span>
+          <span style="font-size:12px;font-weight:500;color:#1a1a1a;">${eq.depth}km</span>
         </div>
         <div style="display:flex;justify-content:space-between;align-items:center;">
-          <span style="font-size:12px;color:#6b7280;">推定影響半径</span>
-          <span style="font-size:12px;font-weight:500;color:#374151;">約${radiusKm}km</span>
+          <span style="font-size:12px;color:#8a8a8a;">推定影響半径</span>
+          <span style="font-size:12px;font-weight:500;color:#1a1a1a;">約${radiusKm}km</span>
         </div>
       </div>
       ${impactHtml}
@@ -695,7 +700,7 @@ onMounted(() => {
   width: 100%;
   height: 100%;
   min-height: 400px;
-  background: #f1f5f9;
+  background: #eef1f5;
 }
 </style>
 
@@ -716,10 +721,11 @@ onMounted(() => {
   50% { transform: scale(1.15); }
 }
 
-/* Leafletポップアップ - クリーンなデザイン */
+/* Leafletポップアップ - Design D */
 .leaflet-popup-content-wrapper {
-  border-radius: 12px;
-  box-shadow: 0 8px 24px rgba(0,0,0,0.12);
+  border-radius: 4px;
+  border-top: 3px solid #1b2838;
+  box-shadow: 0 8px 20px rgba(0,0,0,0.12);
   padding: 0;
   overflow: hidden;
 }
@@ -738,7 +744,7 @@ onMounted(() => {
 }
 
 .leaflet-popup-close-button {
-  color: #9ca3af !important;
+  color: #8a8a8a !important;
   font-size: 18px !important;
   padding: 8px 10px !important;
   width: auto !important;
@@ -748,21 +754,21 @@ onMounted(() => {
 }
 
 .leaflet-popup-close-button:hover {
-  color: #374151 !important;
-  background: #f3f4f6 !important;
-  border-radius: 6px;
+  color: #1b2838 !important;
+  background: #eef1f5 !important;
+  border-radius: 3px;
 }
 
 /* ツールチップ */
 .leaflet-tooltip {
   background: white;
-  border: 1px solid #e5e7eb;
-  border-radius: 6px;
+  border: 1px solid #d0d5dd;
+  border-radius: 3px;
   padding: 4px 10px;
-  font-family: system-ui, sans-serif;
+  font-family: 'Noto Sans JP', 'BIZ UDGothic', sans-serif;
   font-size: 12px;
   font-weight: 500;
-  color: #374151;
+  color: #1a1a1a;
   box-shadow: 0 4px 12px rgba(0,0,0,0.1);
 }
 
@@ -772,19 +778,19 @@ onMounted(() => {
 
 /* ズームコントロール */
 .leaflet-control-zoom {
-  border: 1px solid #e5e7eb !important;
-  border-radius: 8px !important;
+  border: 1px solid #d0d5dd !important;
+  border-radius: 3px !important;
   overflow: hidden;
 }
 
 .leaflet-control-zoom a {
   background: white !important;
-  color: #374151 !important;
-  border-bottom: 1px solid #e5e7eb !important;
+  color: #1b2838 !important;
+  border-bottom: 1px solid #d0d5dd !important;
 }
 
 .leaflet-control-zoom a:hover {
-  background: #f9fafb !important;
+  background: #eef1f5 !important;
 }
 
 .leaflet-control-zoom a:last-child {

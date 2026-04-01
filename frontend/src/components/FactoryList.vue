@@ -238,7 +238,7 @@ function getTypeIcon(type: string): string {
   display: flex;
   flex-direction: column;
   height: 100%;
-  background: linear-gradient(180deg, #f8fafc 0%, #f1f5f9 100%);
+  background: var(--color-shell-panel);
 }
 
 /* ヘッダー */
@@ -246,36 +246,33 @@ function getTypeIcon(type: string): string {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 16px 18px;
-  background: linear-gradient(135deg, #1e293b 0%, #4e6990 100%);
-  border-radius: 4px;
-  border-bottom: 1px solid rgba(255,255,255,0.1);
+  padding: 10px 20px;
+  background: var(--color-shell-navy);
 }
 
 .panel-header h2 {
-  font-size: 15px;
-  font-weight: 600;
-  color: white;
-  letter-spacing: -0.01em;
+  font-size: 13px;
+  font-weight: 700;
+  color: #ffffff;
+  letter-spacing: 0.08em;
 }
 
 .header-badge {
-  font-size: 13px;
+  font-size: 11px;
   font-weight: 700;
-  color: white;
-  background: rgba(255,255,255,0.15);
-  padding: 4px 12px;
-  border-radius: 12px;
-  backdrop-filter: blur(4px);
+  color: #ffffff;
+  background: rgba(255,255,255,0.08);
+  padding: 2px 8px;
+  border-radius: 3px;
 }
 
 /* タブ */
 .tabs {
   display: flex;
-  padding: 12px 14px;
-  gap: 8px;
-  background: white;
-  border-bottom: 1px solid var(--color-border-light);
+  padding: 12px 20px;
+  gap: 6px;
+  background: var(--color-shell-panel);
+  border-bottom: 1px solid var(--color-border);
 }
 
 .tab {
@@ -284,47 +281,46 @@ function getTypeIcon(type: string): string {
   align-items: center;
   justify-content: center;
   gap: 6px;
-  padding: 10px 12px;
-  font-size: 13px;
-  font-weight: 500;
-  color: var(--color-gray-500);
-  background: var(--color-gray-50);
-  border: 1px solid var(--color-gray-200);
-  border-radius: 10px;
-  transition: all 0.2s ease;
+  padding: 8px 12px;
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--color-text-secondary);
+  background: #ffffff;
+  border: 1px solid var(--color-border);
+  border-radius: 3px;
+  transition: all 0.15s ease;
 }
 
 .tab:hover {
-  background: var(--color-gray-100);
-  color: var(--color-gray-700);
+  background: var(--color-shell-panel-alt);
+  color: var(--color-shell-navy);
 }
 
 .tab.active {
-  background: linear-gradient(135deg, #3b82f6, #2563eb);
-  border-color: transparent;
-  color: white;
-  box-shadow: 0 4px 12px rgba(59, 130, 246, 0.3);
+  background: var(--color-shell-navy);
+  border-color: var(--color-shell-navy);
+  color: #ffffff;
 }
 
 .tab.active.alert {
-  background: linear-gradient(135deg, #ef4444, #dc2626);
-  box-shadow: 0 4px 12px rgba(239, 68, 68, 0.3);
+  background: #c62828;
+  border-color: #c62828;
 }
 
 .tab-count {
   font-size: 11px;
-  font-weight: 600;
-  padding: 2px 7px;
-  background: rgba(0,0,0,0.08);
-  border-radius: 8px;
+  font-weight: 700;
+  padding: 1px 6px;
+  background: #eef1f5;
+  border-radius: 3px;
 }
 
 .tab.active .tab-count {
-  background: rgba(255,255,255,0.25);
+  background: rgba(255,255,255,0.14);
 }
 
 .tab-count.alert {
-  background: rgba(239, 68, 68, 0.15);
+  background: #fff5f5;
   color: var(--color-danger-600);
 }
 
@@ -332,59 +328,56 @@ function getTypeIcon(type: string): string {
 .node-list {
   flex: 1;
   overflow-y: auto;
-  padding: 12px;
+  padding: 12px 20px;
 }
 
 .node-card {
   display: flex;
   align-items: stretch;
   margin-bottom: 10px;
-  background: white;
-  border: 1px solid var(--color-gray-200);
-  border-radius: 12px;
+  background: #ffffff;
+  border: 1px solid var(--color-border-light);
+  border-top: 3px solid transparent;
+  border-radius: 0 0 4px 4px;
   cursor: pointer;
-  transition: all 0.2s ease;
+  transition: background 0.15s ease, border-color 0.15s ease;
   overflow: hidden;
-  box-shadow: 0 1px 3px rgba(0,0,0,0.04);
 }
 
 .node-card:hover {
-  border-color: var(--color-gray-300);
-  box-shadow: 0 4px 12px rgba(0,0,0,0.08);
-  transform: translateY(-1px);
+  background: #f5f7fa;
+  border-color: var(--color-border);
 }
 
-.node-card.danger { border-left: none; }
-.node-card.warning { border-left: none; }
+.node-card.danger { border-top-color: #c62828; }
+.node-card.warning { border-top-color: #f57f17; }
 
 /* カードインジケーター（左端の色帯） */
 .card-indicator {
-  width: 4px;
+  width: 3px;
   flex-shrink: 0;
 }
 
 /* ノードタイプ別の通常色 */
 .card-indicator.plant {
-  background: linear-gradient(180deg, #3b82f6, #2563eb);
+  background: #1b2838;
 }
 
 .card-indicator.supplier {
-  background: linear-gradient(180deg, #0891b2, #0e7490);
+  background: #5f6978;
 }
 
 .card-indicator.customer {
-  background: linear-gradient(180deg, #22c55e, #16a34a);
+  background: #98a2b3;
 }
 
 /* 影響状態の色（タイプより優先） */
 .card-indicator.danger {
-  background: linear-gradient(180deg, #ef4444, #dc2626);
-  box-shadow: 0 0 8px rgba(239, 68, 68, 0.4);
+  background: #c62828;
 }
 
 .card-indicator.warning {
-  background: linear-gradient(180deg, #f59e0b, #d97706);
-  box-shadow: 0 0 8px rgba(245, 158, 11, 0.4);
+  background: #f57f17;
 }
 
 .card-content {
@@ -406,8 +399,8 @@ function getTypeIcon(type: string): string {
   align-items: center;
   gap: 6px;
   font-size: 14px;
-  font-weight: 600;
-  color: var(--color-gray-900);
+  font-weight: 700;
+  color: var(--color-text-primary);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -422,36 +415,36 @@ function getTypeIcon(type: string): string {
 .status-badge {
   flex-shrink: 0;
   font-size: 10px;
-  font-weight: 600;
-  padding: 3px 8px;
-  border-radius: 6px;
+  font-weight: 700;
+  padding: 2px 8px;
+  border-radius: 3px;
   text-transform: uppercase;
-  letter-spacing: 0.02em;
+  letter-spacing: 0.04em;
 }
 
 .status-badge.plant {
-  background: linear-gradient(135deg, #dbeafe, #bfdbfe);
-  color: #1d4ed8;
+  background: #eef1f5;
+  color: #1b2838;
 }
 
 .status-badge.supplier {
-  background: linear-gradient(135deg, #ecfeff, #cffafe);
-  color: #0e7490;
+  background: #f0f2f5;
+  color: #4a4a4a;
 }
 
 .status-badge.customer {
-  background: linear-gradient(135deg, #dcfce7, #bbf7d0);
-  color: #15803d;
+  background: #e8eaed;
+  color: #4a4a4a;
 }
 
 .status-badge.danger {
-  background: linear-gradient(135deg, #fee2e2, #fecaca);
-  color: #b91c1c;
+  background: #c62828;
+  color: #ffffff;
 }
 
 .status-badge.warning {
-  background: linear-gradient(135deg, #fef3c7, #fde68a);
-  color: #b45309;
+  background: #f57f17;
+  color: #ffffff;
 }
 
 .node-subtitle {
@@ -459,11 +452,11 @@ function getTypeIcon(type: string): string {
   align-items: center;
   gap: 5px;
   font-size: 12px;
-  color: var(--color-gray-500);
+  color: var(--color-text-muted);
 }
 
 .node-subtitle svg {
-  color: var(--color-gray-400);
+  color: var(--color-text-muted);
 }
 
 .empty-state {
@@ -473,7 +466,7 @@ function getTypeIcon(type: string): string {
   justify-content: center;
   gap: 8px;
   padding: 40px 20px;
-  color: var(--color-gray-400);
+  color: var(--color-text-muted);
   font-size: 13px;
 }
 
@@ -488,9 +481,9 @@ function getTypeIcon(type: string): string {
   align-items: center;
   justify-content: center;
   gap: 16px;
-  padding: 14px;
-  background: white;
-  border-top: 1px solid var(--color-border-light);
+  padding: 14px 20px;
+  background: var(--color-shell-panel);
+  border-top: 1px solid var(--color-border);
 }
 
 .page-btn {
@@ -499,17 +492,17 @@ function getTypeIcon(type: string): string {
   justify-content: center;
   width: 36px;
   height: 36px;
-  color: var(--color-gray-600);
-  background: var(--color-gray-50);
-  border: 1px solid var(--color-gray-200);
-  border-radius: 10px;
-  transition: all 0.2s ease;
+  color: var(--color-text-secondary);
+  background: #ffffff;
+  border: 1px solid var(--color-border);
+  border-radius: 3px;
+  transition: all 0.15s ease;
 }
 
 .page-btn:hover:not(:disabled) {
-  background: var(--color-gray-100);
-  border-color: var(--color-gray-300);
-  color: var(--color-gray-900);
+  background: var(--color-shell-panel-alt);
+  border-color: var(--color-border);
+  color: var(--color-shell-navy);
 }
 
 .page-btn:disabled {
@@ -527,14 +520,14 @@ function getTypeIcon(type: string): string {
 
 .page-current {
   font-weight: 700;
-  color: var(--color-gray-900);
+  color: var(--color-text-primary);
 }
 
 .page-sep {
-  color: var(--color-gray-400);
+  color: var(--color-text-muted);
 }
 
 .page-total {
-  color: var(--color-gray-500);
+  color: var(--color-text-secondary);
 }
 </style>

@@ -1,91 +1,64 @@
 /**
- * サプライチェーン可視化システム - エンタープライズ・ダッシュボード
- * 
- * 美学方向性: クリーン・エンタープライズ
- * - 明るく清潔感のあるライトモード
- * - 高コントラストで視認性重視
- * - 洗練されたビジネスUI
+ * グローバルスタイル
+ * Design D に合わせて最小限のリセットと共通値だけを定義
  */
 
-@import url('https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@300;400;500;600;700&family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap');
+@import './fonts.css';
 
 :root {
-  /* プライマリカラー - インディゴ */
-  --color-primary-700: #4338ca;
-  --color-primary-600: #4f46e5;
-  --color-primary-500: #6366f1;
-  --color-primary-400: #818cf8;
-  --color-primary-100: #e0e7ff;
-  --color-primary-50: #eef2ff;
+  --color-primary-700: #162230;
+  --color-primary-600: #1b2838;
+  --color-primary-500: #304357;
+  --color-primary-400: #506175;
+  --color-primary-100: #d7dee6;
+  --color-primary-50: #eef1f5;
 
-  /* ニュートラル */
-  --color-gray-900: #111827;
-  --color-gray-800: #1f2937;
-  --color-gray-700: #374151;
-  --color-gray-600: #4b5563;
-  --color-gray-500: #6b7280;
-  --color-gray-400: #9ca3af;
-  --color-gray-300: #d1d5db;
-  --color-gray-200: #e5e7eb;
-  --color-gray-100: #f3f4f6;
-  --color-gray-50: #f9fafb;
+  --color-gray-900: #1a1a1a;
+  --color-gray-800: #2f3742;
+  --color-gray-700: #4a5563;
+  --color-gray-600: #5f6978;
+  --color-gray-500: #7c8795;
+  --color-gray-400: #98a2b3;
+  --color-gray-300: #c6ccd4;
+  --color-gray-200: #d0d5dd;
+  --color-gray-100: #eef1f5;
+  --color-gray-50: #fafbfc;
 
-  /* ステータスカラー */
-  --color-danger-600: #dc2626;
+  --color-danger-600: #c62828;
   --color-danger-500: #ef4444;
   --color-danger-100: #fee2e2;
-  --color-danger-50: #fef2f2;
+  --color-danger-50: #fff5f5;
 
-  --color-warning-600: #d97706;
-  --color-warning-500: #f59e0b;
+  --color-warning-600: #b26a00;
+  --color-warning-500: #f57f17;
   --color-warning-100: #fef3c7;
-  --color-warning-50: #fffbeb;
+  --color-warning-50: #fffde7;
 
-  --color-success-600: #059669;
+  --color-success-600: #2e7d32;
   --color-success-500: #10b981;
   --color-success-100: #d1fae5;
   --color-success-50: #ecfdf5;
 
-  /* ノードタイプカラー */
   --color-plant: #3b82f6;
   --color-plant-light: #60a5fa;
-  --color-supplier: #8b5cf6;
-  --color-supplier-light: #a78bfa;
-  --color-customer: #10b981;
-  --color-customer-light: #34d399;
+  --color-supplier: #0891b2;
+  --color-supplier-light: #22b8cf;
+  --color-customer: #22c55e;
+  --color-customer-light: #4ade80;
 
-  /* アクセントカラー - オレンジ */
-  --color-accent-700: #c2410c;
-  --color-accent-600: #ea580c;
-  --color-accent-500: #f97316;
-  --color-accent-400: #fb923c;
-  --color-accent-100: #ffedd5;
-  --color-accent-50:  #fff7ed;
-
-  /* サイドバー */
-  --color-sidebar-bg: #1e293b;
-  --color-sidebar-hover: #334155;
-  --color-sidebar-text: #94a3b8;
-  --color-sidebar-text-active: #f8fafc;
-  --color-sidebar-accent: #f97316;
-
-  /* セマンティックカラー */
-  --color-background: #f8fafc;
+  --color-background: #ffffff;
   --color-surface: #ffffff;
-  --color-surface-secondary: var(--color-gray-50);
-  --color-border: var(--color-gray-200);
-  --color-border-light: var(--color-gray-100);
-  --color-text-primary: var(--color-gray-900);
-  --color-text-secondary: var(--color-gray-600);
-  --color-text-tertiary: var(--color-gray-500);
-  --color-text-muted: var(--color-gray-400);
+  --color-surface-secondary: #fafbfc;
+  --color-border: #d0d5dd;
+  --color-border-light: #e8eaed;
+  --color-text-primary: #1a1a1a;
+  --color-text-secondary: #4a4a4a;
+  --color-text-tertiary: #6b7280;
+  --color-text-muted: #8a8a8a;
 
-  /* タイポグラフィ */
-  --font-sans: 'Inter', 'Noto Sans JP', system-ui, sans-serif;
-  --font-mono: 'JetBrains Mono', monospace;
+  --font-sans: 'BIZ UDGothic', 'Noto Sans JP', 'Hiragino Kaku Gothic ProN', sans-serif;
+  --font-mono: 'BIZ UDGothic', 'Noto Sans JP', monospace;
 
-  /* フォントサイズ */
-  --text-2xs: 0.625rem;
   --text-xs: 0.75rem;
   --text-sm: 0.8125rem;
   --text-base: 0.875rem;
@@ -95,7 +68,6 @@
   --text-3xl: 1.5rem;
   --text-4xl: 2rem;
 
-  /* スペーシング */
   --space-1: 0.25rem;
   --space-2: 0.5rem;
   --space-3: 0.75rem;
@@ -104,30 +76,33 @@
   --space-6: 1.5rem;
   --space-8: 2rem;
 
-  /* 角丸 */
-  --radius-sm: 4px;
-  --radius-md: 6px;
-  --radius-lg: 8px;
-  --radius-xl: 12px;
+  --radius-sm: 3px;
+  --radius-md: 4px;
+  --radius-lg: 6px;
+  --radius-xl: 8px;
 
-  /* シャドウ */
   --shadow-xs: 0 1px 2px 0 rgb(0 0 0 / 0.03);
   --shadow-sm: 0 1px 3px 0 rgb(0 0 0 / 0.06), 0 1px 2px -1px rgb(0 0 0 / 0.06);
   --shadow-md: 0 4px 6px -1px rgb(0 0 0 / 0.07), 0 2px 4px -2px rgb(0 0 0 / 0.05);
   --shadow-lg: 0 10px 15px -3px rgb(0 0 0 / 0.08), 0 4px 6px -4px rgb(0 0 0 / 0.04);
-  --shadow-card: 0 1px 3px rgb(0 0 0 / 0.04), 0 0 0 1px rgb(0 0 0 / 0.03);
-  --shadow-card-hover: 0 4px 12px rgb(0 0 0 / 0.08), 0 0 0 1px rgb(0 0 0 / 0.04);
 
-  /* トランジション */
   --transition-fast: 150ms ease;
   --transition-base: 200ms ease;
   --transition-slow: 300ms ease;
 }
 
-*, *::before, *::after {
+*,
+*::before,
+*::after {
   box-sizing: border-box;
   margin: 0;
   padding: 0;
+}
+
+html,
+body,
+#app {
+  min-height: 100%;
 }
 
 html {
@@ -136,38 +111,44 @@ html {
 
 body {
   font-family: var(--font-sans);
-  font-size: var(--text-base);
+  font-size: 13px;
   line-height: 1.6;
-  color: var(--color-text-primary);
-  background: var(--color-background);
+  color: #1a1a1a;
+  background: #ffffff;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
-  font-feature-settings: "cv02", "cv03", "cv04", "cv11";
-  text-rendering: optimizeLegibility;
 }
 
-/* Tabular figures for data-heavy UIs */
-.tabular-nums, table, [data-numeric] {
-  font-feature-settings: "tnum";
-  font-variant-numeric: tabular-nums;
-}
-
-h1, h2, h3, h4, h5, h6 {
-  font-weight: 600;
-  line-height: 1.25;
+button,
+input,
+select,
+textarea {
+  font: inherit;
 }
 
 button {
-  font-family: inherit;
   cursor: pointer;
   border: none;
   background: none;
 }
 
-ul, ol { list-style: none; }
+a {
+  color: inherit;
+  text-decoration: none;
+}
+
+ul,
+ol {
+  list-style: none;
+}
+
+table,
+[data-numeric] {
+  font-variant-numeric: tabular-nums;
+}
 
 :focus-visible {
-  outline: 2px solid var(--color-primary-500);
+  outline: 2px solid #b8860b;
   outline-offset: 2px;
 }
 
@@ -177,16 +158,16 @@ ul, ol { list-style: none; }
 }
 
 ::-webkit-scrollbar-track {
-  background: var(--color-gray-100);
+  background: #eef1f5;
 }
 
 ::-webkit-scrollbar-thumb {
-  background: var(--color-gray-300);
+  background: #c6ccd4;
   border-radius: 3px;
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: var(--color-gray-400);
+  background: #98a2b3;
 }
 
 @keyframes fadeIn {

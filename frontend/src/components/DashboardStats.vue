@@ -40,7 +40,7 @@ const store = useSupplyChainStore();
 .stats-row {
   display: flex;
   align-items: center;
-  gap: 20px;
+  gap: 18px;
   flex-shrink: 1;
   min-width: 0;
   overflow: hidden;
@@ -53,35 +53,36 @@ const store = useSupplyChainStore();
 }
 
 .stat-value {
-  font-size: 20px;
+  font-size: 18px;
   font-weight: 700;
-  color: var(--color-gray-800);
+  color: #ffffff;
   font-variant-numeric: tabular-nums;
 }
 
 .stat-value.danger {
-  color: #dc2626;
+  color: #ffb4b4;
 }
 
 .stat-value.warning {
-  color: #d97706;
+  color: #f0d38a;
 }
 
 .stat-label {
-  font-size: 12px;
-  font-weight: 500;
-  color: var(--color-gray-500);
+  font-size: 11px;
+  font-weight: 700;
+  color: rgba(255, 255, 255, 0.56);
 }
 
 .stat-divider {
   width: 1px;
   height: 24px;
-  background: var(--color-gray-300);
+  background: rgba(255, 255, 255, 0.16);
 }
 
 .stat-item.alert {
   padding: 4px 10px;
-  background: var(--color-gray-100);
-  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 3px;
 }
 </style>
