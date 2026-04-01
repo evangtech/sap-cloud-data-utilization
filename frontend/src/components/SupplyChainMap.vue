@@ -61,14 +61,13 @@ function initMap() {
     zoom: 6,
     minZoom: 5,
     maxZoom: 18,
-    maxBounds: [[20, 122], [46, 154]],
-    maxBoundsViscosity: 1.0,
   });
 
   // OpenStreetMap標準タイル
   L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
     attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',
     maxZoom: 19,
+    className: 'design-d-tile-layer',
   }).addTo(map);
 }
 
@@ -700,7 +699,9 @@ onMounted(() => {
   width: 100%;
   height: 100%;
   min-height: 400px;
-  background: #eef1f5;
+  background:
+    radial-gradient(circle at top left, rgba(212, 216, 221, 0.55), transparent 28%),
+    linear-gradient(180deg, #e9edf1 0%, #dde5ea 100%);
 }
 </style>
 
@@ -709,6 +710,17 @@ onMounted(() => {
 .custom-marker-icon {
   background: none !important;
   border: none !important;
+}
+
+.leaflet-container {
+  background:
+    radial-gradient(circle at top left, rgba(212, 216, 221, 0.55), transparent 28%),
+    linear-gradient(180deg, #e9edf1 0%, #dde5ea 100%);
+  font-family: 'BIZ UDGothic', 'Noto Sans JP', sans-serif;
+}
+
+.leaflet-tile-pane {
+  filter: grayscale(0.18) saturate(0.78) brightness(1.03) contrast(0.95);
 }
 
 /* 地震マーカーのパルスアニメーション */
@@ -795,5 +807,18 @@ onMounted(() => {
 
 .leaflet-control-zoom a:last-child {
   border-bottom: none !important;
+}
+
+.leaflet-control-attribution {
+  background: rgba(255, 255, 255, 0.92) !important;
+  color: #6b7280 !important;
+  border-top: 1px solid #d0d5dd;
+  border-left: 1px solid #d0d5dd;
+  border-radius: 3px 0 0 0;
+  padding: 3px 6px !important;
+}
+
+.leaflet-control-attribution a {
+  color: #1b2838 !important;
 }
 </style>

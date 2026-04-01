@@ -12,7 +12,7 @@ const router = createRouter({
       path: '/',
       name: 'map',
       component: MapView,
-      meta: { useOwnLayout: true },
+      meta: { breadcrumb: 'サプライチェーンマップ' },
     },
     {
       path: '/factories',

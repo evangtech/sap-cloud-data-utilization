@@ -35,6 +35,10 @@ const navItems = [
 ];
 
 const shellPageMeta: Record<string, ShellPageMeta> = {
+  map: {
+    title: 'サプライチェーンマップ',
+    subtitle: 'Supply Chain Intelligence Map',
+  },
   simulation: {
     title: 'What-if コストシミュレーション',
     subtitle: 'Supply Chain Cost Simulator',
@@ -190,8 +194,20 @@ function isActive(routeName: string): boolean {
   display: flex;
   align-items: center;
   gap: 12px;
-  padding: 10px 20px;
+  height: 48px;
+  padding: 0 20px;
   background: #1b2838;
+  flex-shrink: 0;
+  position: relative;
+  border-bottom: 1px solid rgba(212, 168, 67, 0.22);
+}
+.sidebar-brand::after,
+.topbar::after {
+  content: '';
+  position: absolute;
+  inset: auto 0 0;
+  height: 2px;
+  background: linear-gradient(90deg, #b8860b 0%, #d4a843 50%, #b8860b 100%);
 }
 .brand-icon {
   display: flex;
@@ -310,13 +326,6 @@ function isActive(routeName: string): boolean {
   flex-shrink: 0;
   position: relative;
 }
-.topbar::after {
-  content: '';
-  position: absolute;
-  inset: auto 0 0;
-  height: 2px;
-  background: linear-gradient(90deg, #b8860b 0%, #d4a843 50%, #b8860b 100%);
-}
 .topbar-left {
   display: flex;
   align-items: center;
@@ -381,7 +390,8 @@ function isActive(routeName: string): boolean {
   }
   .sidebar-brand {
     justify-content: center;
-    padding: 10px;
+    height: 48px;
+    padding: 0 10px;
   }
   .nav-item {
     justify-content: center;
