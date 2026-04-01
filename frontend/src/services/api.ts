@@ -13,6 +13,14 @@ import type {
   DashboardStats,
   Location,
   SimFXRate,
+  GraphRiskEvent,
+  NodeRiskScore,
+  EventImpact,
+  DisruptsEdge,
+  Warehouse,
+  LogisticsHub,
+  RouteThrough,
+  CorridorRisk,
 } from '@/types';
 
 // Amplify Data Client（遅延初期化）
@@ -876,5 +884,276 @@ export async function executeNlQuery(query: string): Promise<NlQueryResult> {
       description: error instanceof Error ? error.message : 'クエリ処理中にエラーが発生しました',
       results: [],
     };
+  }
+}
+
+// ========================================
+// リスクイベント関連 API（Neptune Graph）
+// ========================================
+
+/**
+ * リスクイベント一覧を取得
+ */
+export async function fetchRiskEvents(filter?: {
+  lifecycleStatus?: string[];
+  eventType?: string;
+}): Promise<GraphRiskEvent[]> {
+  const c = await getClient();
+  if (!c) return [];
+
+  try {
+    const args: Record<string, unknown> = {};
+    if (filter?.lifecycleStatus) args.lifecycleStatuses = filter.lifecycleStatus;
+    if (filter?.eventType) args.eventTypes = [filter.eventType];
+
+    const { data, errors } = await c.queries.getRiskEvents(args);
+    if (errors) console.error('リスクイベント取得エラー:', errors);
+    return (data ?? []) as GraphRiskEvent[];
+  } catch (error) {
+    console.error('リスクイベント取得エラー:', error);
+    return [];
+  }
+}
+
+/**
+ * アクティブなインパクト一覧を取得（ノード別 or イベント別）
+ */
+export async function fetchActiveImpacts(
+  nodeId?: string,
+  eventId?: string,
+): Promise<EventImpact[]> {
+  const c = await getClient();
+  if (!c) return [];
+
+  try {
+    const args: Record<string, unknown> = {};
+    if (nodeId) args.nodeId = nodeId;
+    if (eventId) args.eventId = eventId;
+
+    const { data, errors } = await c.queries.getActiveImpacts(args);
+    if (errors) console.error('アクティブインパクト取得エラー:', errors);
+    return (data ?? []) as EventImpact[];
+  } catch (error) {
+    console.error('アクティブインパクト取得エラー:', error);
+    return [];
+  }
+}
+
+/**
+ * 特定イベントの全インパクト（過去イベント含む、シナリオ再現用）
+ */
+export async function fetchImpactsByEvent(eventId: string): Promise<EventImpact[]> {
+  const c = await getClient();
+  if (!c) return [];
+
+  try {
+    const { data, errors } = await c.queries.getImpactsByEvent({ eventId });
+    if (errors) console.error('イベント別インパクト取得エラー:', errors);
+    return (data ?? []) as EventImpact[];
+  } catch (error) {
+    console.error('イベント別インパクト取得エラー:', error);
+    return [];
+  }
+}
+
+/**
+ * アクティブなDISRUPTSエッジ一覧を取得
+ */
+export async function fetchActiveDisrupts(): Promise<DisruptsEdge[]> {
+  const c = await getClient();
+  if (!c) return [];
+
+  try {
+    const { data, errors } = await c.queries.getActiveDisrupts();
+    if (errors) console.error('アクティブDISRUPTS取得エラー:', errors);
+    return (data ?? []) as DisruptsEdge[];
+  } catch (error) {
+    console.error('アクティブDISRUPTS取得エラー:', error);
+    return [];
+  }
+}
+
+/**
+ * 特定イベントのDISRUPTSエッジ（シナリオ再現用）
+ */
+export async function fetchDisruptsByEvent(eventId: string): Promise<DisruptsEdge[]> {
+  const c = await getClient();
+  if (!c) return [];
+
+  try {
+    const { data, errors } = await c.queries.getDisruptsByEvent({ eventId });
+    if (errors) console.error('イベント別DISRUPTS取得エラー:', errors);
+    return (data ?? []) as DisruptsEdge[];
+  } catch (error) {
+    console.error('イベント別DISRUPTS取得エラー:', error);
+    return [];
+  }
+}
+
+/**
+ * 全ノードのリスクスコアを取得
+ */
+export async function fetchNodeRiskScores(): Promise<NodeRiskScore[]> {
+  const c = await getClient();
+  if (!c) return [];
+
+  try {
+    const { data, errors } = await c.queries.getNodeRiskScores();
+    if (errors) console.error('リスクスコア取得エラー:', errors);
+    return (data ?? []).map((r: any) => ({
+      nodeId: r?.nodeId || '',
+      nodeType: r?.nodeType || 'Plant',
+      baselineRisk: r?.baselineRisk || 0,
+      liveEventRisk: r?.liveEventRisk || 0,
+      revenueExposure: r?.revenueExposure || 0,
+      combinedOperationalRisk: r?.combinedOperationalRisk || 0,
+      activeEventCount: r?.activeEventCount || 0,
+      topEvent: r?.topEvent || null,
+    }));
+  } catch (error) {
+    console.error('リスクスコア取得エラー:', error);
+    return [];
+  }
+}
+
+/**
+ * サプライルートリスク分析を取得
+ */
+export async function fetchCorridorRisks(): Promise<CorridorRisk[]> {
+  const c = await getClient();
+  if (!c) return [];
+
+  try {
+    const { data, errors } = await c.queries.getCorridorRisks();
+    if (errors) console.error('ルートリスク取得エラー:', errors);
+    return (data ?? []).map((r: any) => ({
+      origin: {
+        id: r?.originId || '',
+        name: r?.originName || '',
+        type: r?.originType || '',
+      },
+      destination: {
+        id: r?.destId || '',
+        name: r?.destName || '',
+        type: r?.destType || '',
+      },
+      chokePointScore: r?.chokePointScore || 0,
+      avgRouteRisk: r?.avgRouteRisk || 0,
+      hops: r?.hops || 0,
+      riskyNodes: r?.riskyNodes || [],
+    }));
+  } catch (error) {
+    console.error('ルートリスク取得エラー:', error);
+    return [];
+  }
+}
+
+/**
+ * 倉庫一覧を取得
+ */
+export async function fetchWarehouses(): Promise<Warehouse[]> {
+  const c = await getClient();
+  if (!c) return [];
+
+  try {
+    const { data, errors } = await c.queries.getWarehouses();
+    if (errors) console.error('倉庫データ取得エラー:', errors);
+    return (data ?? []).map((w: any) => ({
+      id: w?.id || '',
+      name: w?.name || '',
+      countryCode: w?.countryCode || '',
+      latitude: w?.latitude || 0,
+      longitude: w?.longitude || 0,
+      capacity: w?.capacity || 0,
+      status: w?.status || 'active',
+    }));
+  } catch (error) {
+    console.error('倉庫データ取得エラー:', error);
+    return [];
+  }
+}
+
+/**
+ * 物流拠点一覧を取得
+ */
+export async function fetchLogisticsHubs(): Promise<LogisticsHub[]> {
+  const c = await getClient();
+  if (!c) return [];
+
+  try {
+    const { data, errors } = await c.queries.getLogisticsHubs();
+    if (errors) console.error('物流拠点取得エラー:', errors);
+    return (data ?? []).map((lh: any) => ({
+      id: lh?.id || '',
+      name: lh?.name || '',
+      type: lh?.type || 'port',
+      countryCode: lh?.countryCode || '',
+      latitude: lh?.latitude || 0,
+      longitude: lh?.longitude || 0,
+      capacity: lh?.capacity || null,
+      status: lh?.status || 'operational',
+    }));
+  } catch (error) {
+    console.error('物流拠点取得エラー:', error);
+    return [];
+  }
+}
+
+/**
+ * ROUTES_THROUGHリレーション一覧を取得
+ */
+export async function fetchRoutesThrough(): Promise<RouteThrough[]> {
+  const c = await getClient();
+  if (!c) return [];
+
+  try {
+    const { data, errors } = await c.queries.getRoutesThrough();
+    if (errors) console.error('ルート情報取得エラー:', errors);
+    return (data ?? []).map((r: any) => ({
+      fromId: r?.fromId || '',
+      fromType: r?.fromType || 'Plant',
+      fromName: r?.fromName || '',
+      toId: r?.toId || '',
+      toName: r?.toName || '',
+      transitDays: r?.transitDays || 0,
+      isPrimary: r?.isPrimary ?? true,
+    }));
+  } catch (error) {
+    console.error('ルート情報取得エラー:', error);
+    return [];
+  }
+}
+
+/**
+ * ノード別リスク履歴（オンデマンド）
+ */
+export async function fetchRiskEventHistory(nodeId: string): Promise<unknown[]> {
+  const c = await getClient();
+  if (!c) return [];
+
+  try {
+    const { data, errors } = await c.queries.getRiskEventHistory({ nodeId });
+    if (errors) console.error('リスク履歴取得エラー:', errors);
+    return data ?? [];
+  } catch (error) {
+    console.error('リスク履歴取得エラー:', error);
+    return [];
+  }
+}
+
+/**
+ * イベント因果チェーン（オンデマンド）
+ */
+export async function fetchRiskEventChain(eventId: string): Promise<unknown[]> {
+  const c = await getClient();
+  if (!c) return [];
+
+  try {
+    const { data, errors } = await c.queries.getRiskEventChain({ eventId });
+    if (errors) console.error('因果チェーン取得エラー:', errors);
+    return data ?? [];
+  } catch (error) {
+    console.error('因果チェーン取得エラー:', error);
+    return [];
   }
 }
