@@ -38,9 +38,12 @@ const GRAPH_SCHEMA = `
 - Plant (id:STRING, name:STRING, country_code:STRING, plant_type:STRING, lat:FLOAT, lon:FLOAT, capacity:INT, status:STRING)
 - Warehouse (id:STRING, name:STRING, country_code:STRING, lat:FLOAT, lon:FLOAT, capacity:INT, status:STRING)
 - Customer (id:STRING, name:STRING, industry:STRING, country_code:STRING, lat:FLOAT, lon:FLOAT)
+- RiskEvent (id:STRING, title:STRING, description:STRING, eventType:STRING, severity:INT[1-5], lifecycleStatus:STRING[detected/active/recovering/resolved], reviewStatus:STRING[pending/confirmed/watching/dismissed], lat:FLOAT, lon:FLOAT, radiusKm:FLOAT, locationName:STRING, startDate:DATETIME, endDate:DATETIME, source:STRING, confidence:FLOAT)
+- RiskCategory (id:STRING, name:STRING, parentCategory:STRING[natural_disaster/geopolitical/operational/financial], avgRecoveryDays:INT)
+- LogisticsHub (id:STRING, name:STRING, type:STRING[port/airport/border_crossing], country_code:STRING, lat:FLOAT, lon:FLOAT, capacity:STRING, status:STRING[operational/disrupted/closed])
 
 ### エッジ（Relationship Types）
-- LOCATED_IN: (Supplier|Plant|Warehouse|Customer)-[:LOCATED_IN]->(Country)
+- LOCATED_IN: (Supplier|Plant|Warehouse|Customer|LogisticsHub)-[:LOCATED_IN]->(Country)
 - CLASSIFIED_AS: (Material)-[:CLASSIFIED_AS]->(HSCode)
 - TARIFF_APPLIES: (HSCode)-[:TARIFF_APPLIES {importing_country:STRING, tariff_rate_pct:FLOAT, effective_date:STRING, tariff_type:STRING}]->(Country)
 - SUBJECT_TO: (HSCode|Material)-[:SUBJECT_TO]->(Regulation)
@@ -50,6 +53,17 @@ const GRAPH_SCHEMA = `
 - SUPPLIES_TO: (Supplier)-[:SUPPLIES_TO]->(Supplier|Plant), (Plant)-[:SUPPLIES_TO]->(Warehouse|Customer), (Warehouse)-[:SUPPLIES_TO]->(Customer)
 - ORDERED_BY: (Product)-[:ORDERED_BY {annual_order_qty:INT, unit_price_jpy:FLOAT}]->(Customer)
 - ALTERNATIVE_TO: (Supplier)-[:ALTERNATIVE_TO {quality_score_diff:INT, price_diff_pct:INT, lead_time_diff_days:INT, risk_score_diff:INT}]->(Supplier)
+- IMPACTS: (RiskEvent)-[:IMPACTS {severity:INT, impactType:STRING[direct/downstream], status:STRING[active/recovering/resolved], estimatedRecoveryDays:INT, cachedImpactAmount:FLOAT, impactConfidence:FLOAT}]->(Plant|Supplier|Warehouse|Material|LogisticsHub)
+- DISRUPTS: (RiskEvent)-[:DISRUPTS {originCountry:STRING, destinationCountry:STRING, tariffIncreasePct:FLOAT, exportRestricted:BOOLEAN}]->(HSCode)
+- RELATED_EVENT: (RiskEvent)-[:RELATED_EVENT {relationshipType:STRING[triggers/contributes_to/coincident/supersedes/empirical], delayDays:INT, confidence:FLOAT}]->(RiskEvent)
+- CATEGORIZED_AS: (RiskEvent)-[:CATEGORIZED_AS]->(RiskCategory)
+- OCCURRED_IN: (RiskEvent)-[:OCCURRED_IN]->(Country)
+- ROUTES_THROUGH: (Plant|Supplier|Warehouse)-[:ROUTES_THROUGH {transitDays:INT, isPrimary:BOOLEAN}]->(LogisticsHub)
+
+### リスクスコアリングの注意
+- リスクスコアを聞かれた場合は、IMPACTSエッジのseverityとimpactConfidenceからliveEventRiskを算出し、下流の売上エクスポージャーで重み付けしたcombinedOperationalRiskも返すこと
+- リスクスコアリングクエリでは必ず re.reviewStatus = 'confirmed' でフィルタすること
+- 未確認イベント（pending）はスコアに含めないこと
 `;
 
 /** Bedrockシステムプロンプト */
@@ -109,6 +123,10 @@ ${GRAPH_SCHEMA}
 - 影響を受けた工場のみ表示: {"type":"filter","description":"影響を受けた工場のみ表示","filter":{"showPlants":true,"showSuppliers":false,"showCustomers":false,"showWarehouses":false,"highlightIds":[],"impactOnly":true}}
 - 今日の天気は？: {"type":"no_result","description":"このシステムではサプライチェーン（工場・サプライヤー・カスタマ・倉庫・製品・資材・規制・関税）に関する検索のみ対応しています"}
 - あいうえお: {"type":"no_result","description":"入力内容を理解できませんでした。工場やサプライヤーに関する質問をお試しください"}
+- 現在のリスクイベント一覧: {"type":"cypher","description":"アクティブなリスクイベント一覧","query":"MATCH (re:RiskEvent) WHERE re.lifecycleStatus IN ['active','recovering'] AND re.reviewStatus = 'confirmed' RETURN re.id as id, re.title as name, re.lat as lat, re.lon as lon, re.severity as severity, re.eventType as eventType"}
+- 東京工場に影響しているリスクは: {"type":"multi_cypher","description":"東京工場に影響しているリスクイベント","queries":[{"step":"resolve","purpose":"東京工場を特定","query":"MATCH (p:Plant) WHERE p.name CONTAINS '東京' RETURN p.id as id, p.name as name"},{"step":"main","purpose":"影響リスクイベントを取得","query":"MATCH (re:RiskEvent)-[i:IMPACTS]->(p:Plant) WHERE p.name CONTAINS '東京' AND i.status IN ['active','recovering'] RETURN re.id as id, re.title as name, re.lat as lat, re.lon as lon, re.severity as severity, i.impactType as impactType"}]}
+- 港湾の一覧: {"type":"cypher","description":"物流拠点（港湾）の一覧","query":"MATCH (lh:LogisticsHub) WHERE lh.type = 'port' RETURN lh.id as id, lh.name as name, lh.lat as lat, lh.lon as lon, lh.status as status"}
+- SUP001の過去のリスク履歴: {"type":"multi_cypher","description":"TSMCのリスク履歴","queries":[{"step":"resolve","purpose":"TSMCを特定","query":"MATCH (s:Supplier) WHERE s.name CONTAINS 'TSMC' RETURN s.id as id, s.name as name"},{"step":"main","purpose":"リスク履歴を取得","query":"MATCH (re:RiskEvent)-[i:IMPACTS]->(s:Supplier) WHERE s.name CONTAINS 'TSMC' AND re.reviewStatus = 'confirmed' RETURN re.id as id, re.title as name, re.lat as lat, re.lon as lon, re.severity as severity, toString(re.startDate) as startDate"}]}
 `;
 
 /** Converse APIのメッセージ型 */
