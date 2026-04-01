@@ -227,6 +227,8 @@ ORDER BY depth DESC, downstream.severity DESC
 MATCH (re1:RiskEvent)-[:OCCURRED_IN]->(c:Country {code: $countryCode})
 MATCH (re2:RiskEvent)-[:OCCURRED_IN]->(c2:Country)
 WHERE re1 <> re2
+  AND re1.reviewStatus = 'confirmed'
+  AND re2.reviewStatus = 'confirmed'
   AND abs(epochMillis(re1.startDate) - epochMillis(re2.startDate)) < $timeWindowMs
 WITH re1.eventType AS eventTypeA, re2.eventType AS eventTypeB,
      c.code AS regionA, c2.code AS regionB,
@@ -271,18 +273,36 @@ ORDER BY re.startDate DESC
 ### 2.8 過去類似イベント検索（What-If基盤）
 
 ```cypher
+// 類似性評価: イベント種別 + 地理的近接 + 重大度範囲
 MATCH (re:RiskEvent)-[:CATEGORIZED_AS]->(rc:RiskCategory {parentCategory: $parentCategory})
 WHERE re.eventType = $eventType
   AND re.reviewStatus = 'confirmed'
+  AND re.severity >= $minSeverity
+  AND re.severity <= $maxSeverity
+WITH re,
+     // 地理的近接スコア（距離が近いほど高い類似度）
+     CASE
+       WHEN re.lat IS NOT NULL AND re.lon IS NOT NULL
+       THEN 1.0 / (1.0 + sqrt(
+         (re.lat - $targetLat) * (re.lat - $targetLat) +
+         (re.lon - $targetLon) * (re.lon - $targetLon)
+       ) * 111.0)  // 度→km概算
+       ELSE 0.0
+     END AS geoSimilarity
+WHERE geoSimilarity > $minGeoSimilarity OR $minGeoSimilarity = 0
 MATCH (re)-[i:IMPACTS]->(target)
-WITH re, avg(i.estimatedRecoveryDays) AS avgRecovery,
+WITH re, geoSimilarity,
+     avg(i.estimatedRecoveryDays) AS avgRecovery,
      sum(i.cachedImpactAmount) AS totalImpact,
      count(target) AS affectedNodes
 RETURN re.title, re.severity, re.startDate, re.endDate,
-       avgRecovery, totalImpact, affectedNodes
-ORDER BY re.startDate DESC
+       re.lat, re.lon, re.locationName, re.radiusKm,
+       geoSimilarity, avgRecovery, totalImpact, affectedNodes
+ORDER BY geoSimilarity DESC, re.startDate DESC
 LIMIT 5
 ```
+
+パラメータ: `$targetLat`/`$targetLon` はWhat-Ifシミュレーションの対象地点、`$minSeverity`/`$maxSeverity` は類似重大度範囲、`$minGeoSimilarity` は地理的類似度の閾値（0で地理フィルタ無効）。
 
 ### 2.9 NLクエリスキーマ拡張
 
@@ -476,8 +496,11 @@ TTLなし。`dedupeKey` と正規的イベントの永続的マッピング。
 
 伝播はステージドバージョニングを使用する（削除してから書き込みではない）。
 
+**`propagationSequence` の割り当て:**
+`propagationSequence` はDynamoDBのアトミックカウンターで生成する。テーブル `risk-event-provider-cursors` に `propagation-sequence-counter` エントリを追加し、`ADD sequenceValue 1` で単調増加を保証する。各 `impact_propagator` 呼び出しは伝播開始前にこのカウンターをインクリメントし、取得した値を `propagationSequence` として使用する。Neptune側では比較のみ行い、採番は行わない。
+
 **伝播モデル:**
-1. 新しい `propagationRunId` を割り当て
+1. DynamoDBアトミックカウンターから `propagationSequence` を取得し、新しい `propagationRunId` を割り当て
 2. 新しい影響セットを計算
 3. その `propagationRunId` で新しい派生IMPACTSエッジを書き込み
 4. 実行完了をマーク
@@ -625,6 +648,7 @@ interface NodeRiskScore {
   nodeType: 'Plant' | 'Supplier' | 'Warehouse' | 'LogisticsHub'
   baselineRisk: number
   liveEventRisk: number
+  revenueExposure: number          // 下流売上エクスポージャー (JPY)
   combinedOperationalRisk: number
   activeEventCount: number
   topEvent: { title: string; severity: number } | null
@@ -696,6 +720,8 @@ interface DisruptsEdge {
 
 全インパクト関連キャッシュは単一の `Promise.all` でハイドレートし、`$patch` でアトミックに適用。部分状態での中間レンダリングなし。
 
+`fetchRiskEvents` は `detected` を含む。AI抽出イベント (`reviewStatus = 'pending'`) は `lifecycleStatus = 'detected'` で取り込まれるため、レビューキューに表示するにはブートストラップ時に取得する必要がある。リスクスコアへの影響は `reviewStatus = 'confirmed'` フィルタで防止されるため、未確認イベントの取得自体は安全。
+
 ```typescript
 async function loadAllData() {
   const [
@@ -707,7 +733,7 @@ async function loadAllData() {
     fetchPlants(), fetchSuppliers(), fetchCustomers(),
     fetchWarehouses(), fetchLogisticsHubs(),
     fetchSupplyRelations(), fetchRoutesThrough(),
-    fetchRiskEvents({ lifecycleStatus: ['active', 'recovering'] }),
+    fetchRiskEvents({ lifecycleStatus: ['detected', 'active', 'recovering'] }),
     fetchActiveImpacts(),
     fetchActiveDisrupts(),
     fetchNodeRiskScores()
@@ -752,6 +778,16 @@ interface LogisticsHub {
   status: 'operational' | 'disrupted' | 'closed'
 }
 
+interface RouteThrough {
+  fromId: string
+  fromType: 'Plant' | 'Supplier' | 'Warehouse'
+  fromName: string
+  toId: string       // LogisticsHub ID
+  toName: string
+  transitDays: number
+  isPrimary: boolean
+}
+
 interface MapMarker {
   id: string
   type: 'plant' | 'supplier' | 'customer' | 'warehouse' | 'logisticsHub'
@@ -779,6 +815,8 @@ Neptuneクエリレスポンスはハンドラーで `lat`/`lon` → `latitude`/
 | `fetchCorridorRisks(options?)` | Neptune via AppSync | ルートリスク分析 |
 | `fetchRiskEventHistory(nodeId, months?)` | Neptune via AppSync | ノード別リスク履歴 |
 | `fetchRiskEventChain(eventId)` | Neptune via AppSync | RELATED_EVENT因果チェーン |
+| `fetchImpactsByEvent(eventId)` | Neptune via AppSync | 特定イベントの全IMPACTSエッジ（過去イベント含む、シナリオ再現用） |
+| `fetchDisruptsByEvent(eventId)` | Neptune via AppSync | 特定イベントの全DISRUPTSエッジ（過去イベント含む、シナリオ再現用） |
 | `fetchWarehouses()` | Neptune via AppSync | 倉庫一覧 |
 | `fetchLogisticsHubs()` | Neptune via AppSync | 物流拠点一覧 |
 | `fetchRoutesThrough()` | Neptune via AppSync | ROUTES_THROUGHリレーション |
@@ -915,7 +953,7 @@ interface RiskScenarioSnapshot {
 4. コスト/影響再計算が即座に実行
 
 **「過去シナリオ再現」:**
-- 過去のRiskEventを選択 → そのIMPACTSとDISRUPTSをシミュレーション入力としてロード
+- 過去のRiskEventを選択 → `fetchImpactsByEvent(eventId)` と `fetchDisruptsByEvent(eventId)` でそのイベントのIMPACTSとDISRUPTSを取得（lifecycleStatusがresolvedでも取得可能）→ `buildScenarioFromHistoricalEvent()` でシミュレーション入力に変換 → simulation ストアに適用
 
 ---
 
