@@ -959,7 +959,24 @@ async function getDisruptsByEvent(eventId: string) {
 
 async function getNodeRiskScores() {
   // 全ノードタイプ（Plant, Supplier, Warehouse, LogisticsHub）のリスクスコアを算出
-  // UNION ALLで各タイプを結合。revenueExposureの算出パスはノードタイプにより異なる。
+  // UNION ALLで各タイプを結合。
+  //
+  // revenueExposure算出ルール（ノードタイプ別）:
+  //   Plant:        (Plant)-[:SUPPLIES_TO*1..3]->(Customer)<-[:ORDERED_BY]-(Product)
+  //                 → 直接下流の顧客注文額を合算
+  //   Supplier:     (Supplier)-[:SUPPLIES_TO*1..3]->(Customer)<-[:ORDERED_BY]-(Product)
+  //                 → サプライヤーが供給するPlant経由の下流顧客注文額を合算
+  //                 Plantと同じSUPPLIES_TOパスを使用（T1→Plant→Customer）
+  //   Warehouse:    (Warehouse)-[:SUPPLIES_TO*1..3]->(Customer)<-[:ORDERED_BY]-(Product)
+  //                 → 倉庫から出荷される下流顧客注文額を合算
+  //                 Plantと同じSUPPLIES_TOパスを使用（Warehouse→Customer）
+  //   LogisticsHub: (依存ノード)-[:ROUTES_THROUGH]->(Hub) → (依存ノード)-[:SUPPLIES_TO*1..3]->...
+  //                 → ハブを経由する全依存ノードの下流顧客注文額を合算
+  //                 ROUTES_THROUGHで逆引きした後、依存ノードの通常パスで集計
+  //
+  // 全タイプで liveEventRisk の算出式は同一:
+  //   sum(severity * impactConfidence * recency_decay * impactType_weight)
+  // combinedOperationalRisk = liveEventRisk * (1 + log(1 + revenueExposure / 1億))
   const query = `
     // Plant: SUPPLIES_TO経由で下流顧客の売上を直接取得
     MATCH (n:Plant)
@@ -1870,10 +1887,12 @@ Replace the `loadAllData` function body:
 
       const locationsData = parseLocations(plantsData);
 
-      // --- アトミックにパッチ適用（単一の$patchで全refを一括更新、フリッカー防止） ---
-      // Pinia setup storeでは$patchが使えないため、
-      // nextTick内で全refを同一マイクロタスクで更新することで
-      // 中間レンダリングを防ぐ
+      // --- 同一ティックでバッチ更新（same-tick batched update） ---
+      // Pinia setup storeでは$patchが使えないため、個別ref代入になる。
+      // Vueのリアクティビティシステムは同一同期ブロック内のref更新を
+      // 次のマイクロタスクまでバッチ処理するため、中間レンダリングは発生しない。
+      // ただしこれは形式的なアトミック状態遷移ではない —
+      // Vueのスケジューラに依存したベストエフォートのバッチ処理である。
       plants.value = plantsData;
       suppliers.value = suppliersData;
       customers.value = customersData;
@@ -2361,7 +2380,20 @@ class RiskEventService:
             return 0
 
     def ingest(self, raw: RawRiskEvent) -> IngestResult:
-        """正規化 → ロック取得 → レジストリ検索 → upsert → アーカイブ → 伝播"""
+        """正規化 → ロック取得 → レジストリ検索 → upsert → アーカイブ → 伝播
+
+        失敗契約:
+        - upsert成功後にarchive_raw_payload()が失敗: イベントはNeptuneに存在する。
+          action='created' を返す（アーカイブ欠損はログに記録、データロスではない）。
+        - upsert成功後にinvoke_propagation()が失敗: イベントはNeptuneに存在するが
+          IMPACTSエッジが未生成。action='created', impacts_computed=0 を返す。
+          呼び出し元は impacts_computed=0 を検知して後続リトライをスケジュールできる。
+          propagate_impact()は冪等なので再実行は安全。
+        - upsert自体が失敗: 例外がそのまま伝播する（IngestResultは返さない）。
+          呼び出し元のtry/catchでハンドリングされる。
+        設計原則: Neptuneへの書き込みが成功した時点でイベントは「存在する」。
+        アーカイブと伝播は後続処理であり、失敗してもイベント自体はロールバックしない。
+        """
         event = self.normalize(raw)
         dedupe_key = event['dedupeKey']
 
