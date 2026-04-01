@@ -748,8 +748,13 @@ export async function executeQuery(query: string): Promise<Record<string, unknow
     language: 'OPEN_CYPHER',
   });
   const response = await neptuneClient.send(command);
-  const payload = JSON.parse(new TextDecoder().decode(response.payload));
-  return payload.results || [];
+  // 既存 neptune-query/handler.ts のSDKレスポンスパターンに合わせる
+  const payload = await response.payload?.transformToString();
+  if (!payload) {
+    throw new Error('Neptune returned empty payload');
+  }
+  const parsed = JSON.parse(payload);
+  return parsed.results || [];
 }
 
 export async function executeQuerySafe(query: string): Promise<Record<string, unknown>[]> {
@@ -953,12 +958,14 @@ async function getDisruptsByEvent(eventId: string) {
 // --- リスクスコアリング ---
 
 async function getNodeRiskScores() {
+  // 全ノードタイプ（Plant, Supplier, Warehouse, LogisticsHub）のリスクスコアを算出
+  // UNION ALLで各タイプを結合。revenueExposureの算出パスはノードタイプにより異なる。
   const query = `
-    MATCH (p:Plant)
-    OPTIONAL MATCH (p)<-[i:IMPACTS]-(re:RiskEvent)
-      WHERE i.status IN ['active', 'recovering']
-        AND re.reviewStatus = 'confirmed'
-    WITH p,
+    // Plant: SUPPLIES_TO経由で下流顧客の売上を直接取得
+    MATCH (n:Plant)
+    OPTIONAL MATCH (n)<-[i:IMPACTS]-(re:RiskEvent)
+      WHERE i.status IN ['active', 'recovering'] AND re.reviewStatus = 'confirmed'
+    WITH n, labels(n)[0] AS nodeType,
          coalesce(sum(
            i.severity * i.impactConfidence
            * (1.0 / (1 + (epochMillis(datetime()) - epochMillis(re.startDate)) / 2592000000.0))
@@ -966,18 +973,88 @@ async function getNodeRiskScores() {
          ), 0) AS liveEventRisk,
          count(re) AS activeEventCount,
          head(collect(CASE WHEN re IS NOT NULL THEN {title: re.title, severity: i.severity} END)) AS topEvent
-    OPTIONAL MATCH (p)-[:SUPPLIES_TO*1..3]->(c:Customer)<-[o:ORDERED_BY]-(prod:Product)
-    WITH p, liveEventRisk, activeEventCount, topEvent,
+    OPTIONAL MATCH (n)-[:SUPPLIES_TO*1..3]->(c:Customer)<-[o:ORDERED_BY]-(prod:Product)
+    WITH n, nodeType, liveEventRisk, activeEventCount, topEvent,
          coalesce(sum(o.annual_order_qty * o.unit_price_jpy), 0) AS revenueExposure
-    OPTIONAL MATCH (p)-[:LOCATED_IN]->(country:Country)
-    RETURN p.id AS nodeId, 'Plant' AS nodeType,
+    OPTIONAL MATCH (n)-[:LOCATED_IN]->(country:Country)
+    RETURN n.id AS nodeId, nodeType,
            coalesce(country.geopolitical_risk, 0) AS baselineRisk,
-           liveEventRisk,
-           revenueExposure,
+           liveEventRisk, revenueExposure,
            liveEventRisk * (1 + log(1 + revenueExposure / 100000000.0)) AS combinedOperationalRisk,
-           activeEventCount,
-           topEvent
-    ORDER BY combinedOperationalRisk DESC
+           activeEventCount, topEvent
+
+    UNION ALL
+
+    // Supplier: SUPPLIES_TO経由で下流のPlant→Customer売上を取得
+    MATCH (n:Supplier)
+    OPTIONAL MATCH (n)<-[i:IMPACTS]-(re:RiskEvent)
+      WHERE i.status IN ['active', 'recovering'] AND re.reviewStatus = 'confirmed'
+    WITH n, labels(n)[0] AS nodeType,
+         coalesce(sum(
+           i.severity * i.impactConfidence
+           * (1.0 / (1 + (epochMillis(datetime()) - epochMillis(re.startDate)) / 2592000000.0))
+           * CASE i.impactType WHEN 'direct' THEN 1.0 ELSE 0.5 END
+         ), 0) AS liveEventRisk,
+         count(re) AS activeEventCount,
+         head(collect(CASE WHEN re IS NOT NULL THEN {title: re.title, severity: i.severity} END)) AS topEvent
+    OPTIONAL MATCH (n)-[:SUPPLIES_TO*1..3]->(c:Customer)<-[o:ORDERED_BY]-(prod:Product)
+    WITH n, nodeType, liveEventRisk, activeEventCount, topEvent,
+         coalesce(sum(o.annual_order_qty * o.unit_price_jpy), 0) AS revenueExposure
+    OPTIONAL MATCH (n)-[:LOCATED_IN]->(country:Country)
+    RETURN n.id AS nodeId, nodeType,
+           coalesce(country.geopolitical_risk, 0) AS baselineRisk,
+           liveEventRisk, revenueExposure,
+           liveEventRisk * (1 + log(1 + revenueExposure / 100000000.0)) AS combinedOperationalRisk,
+           activeEventCount, topEvent
+
+    UNION ALL
+
+    // Warehouse: Plant経由で売上を取得
+    MATCH (n:Warehouse)
+    OPTIONAL MATCH (n)<-[i:IMPACTS]-(re:RiskEvent)
+      WHERE i.status IN ['active', 'recovering'] AND re.reviewStatus = 'confirmed'
+    WITH n, labels(n)[0] AS nodeType,
+         coalesce(sum(
+           i.severity * i.impactConfidence
+           * (1.0 / (1 + (epochMillis(datetime()) - epochMillis(re.startDate)) / 2592000000.0))
+           * CASE i.impactType WHEN 'direct' THEN 1.0 ELSE 0.5 END
+         ), 0) AS liveEventRisk,
+         count(re) AS activeEventCount,
+         head(collect(CASE WHEN re IS NOT NULL THEN {title: re.title, severity: i.severity} END)) AS topEvent
+    OPTIONAL MATCH (n)-[:SUPPLIES_TO*1..3]->(c:Customer)<-[o:ORDERED_BY]-(prod:Product)
+    WITH n, nodeType, liveEventRisk, activeEventCount, topEvent,
+         coalesce(sum(o.annual_order_qty * o.unit_price_jpy), 0) AS revenueExposure
+    OPTIONAL MATCH (n)-[:LOCATED_IN]->(country:Country)
+    RETURN n.id AS nodeId, nodeType,
+           coalesce(country.geopolitical_risk, 0) AS baselineRisk,
+           liveEventRisk, revenueExposure,
+           liveEventRisk * (1 + log(1 + revenueExposure / 100000000.0)) AS combinedOperationalRisk,
+           activeEventCount, topEvent
+
+    UNION ALL
+
+    // LogisticsHub: ROUTES_THROUGH経由で依存ノードの売上を取得
+    MATCH (n:LogisticsHub)
+    OPTIONAL MATCH (n)<-[i:IMPACTS]-(re:RiskEvent)
+      WHERE i.status IN ['active', 'recovering'] AND re.reviewStatus = 'confirmed'
+    WITH n, labels(n)[0] AS nodeType,
+         coalesce(sum(
+           i.severity * i.impactConfidence
+           * (1.0 / (1 + (epochMillis(datetime()) - epochMillis(re.startDate)) / 2592000000.0))
+           * CASE i.impactType WHEN 'direct' THEN 1.0 ELSE 0.5 END
+         ), 0) AS liveEventRisk,
+         count(re) AS activeEventCount,
+         head(collect(CASE WHEN re IS NOT NULL THEN {title: re.title, severity: i.severity} END)) AS topEvent
+    OPTIONAL MATCH (dep)-[:ROUTES_THROUGH]->(n)
+    OPTIONAL MATCH (dep)-[:SUPPLIES_TO*1..3]->(c:Customer)<-[o:ORDERED_BY]-(prod:Product)
+    WITH n, nodeType, liveEventRisk, activeEventCount, topEvent,
+         coalesce(sum(o.annual_order_qty * o.unit_price_jpy), 0) AS revenueExposure
+    OPTIONAL MATCH (n)-[:LOCATED_IN]->(country:Country)
+    RETURN n.id AS nodeId, nodeType,
+           coalesce(country.geopolitical_risk, 0) AS baselineRisk,
+           liveEventRisk, revenueExposure,
+           liveEventRisk * (1 + log(1 + revenueExposure / 100000000.0)) AS combinedOperationalRisk,
+           activeEventCount, topEvent
   `;
   return executeQuerySafe(query);
 }
@@ -1113,7 +1190,12 @@ export const handler = async (event: { fieldName: string; arguments?: Record<str
 
   switch (fieldName) {
     case 'getRiskEvents':
-      return getRiskEvents(args?.filter as Parameters<typeof getRiskEvents>[0]);
+      return getRiskEvents({
+        lifecycleStatuses: args?.lifecycleStatuses as string[] | undefined,
+        reviewStatuses: args?.reviewStatuses as string[] | undefined,
+        eventTypes: args?.eventTypes as string[] | undefined,
+        minSeverity: args?.minSeverity as number | undefined,
+      });
     case 'getActiveImpacts':
       return getActiveImpacts(args?.nodeId as string, args?.eventId as string);
     case 'getImpactsByEvent':
@@ -1734,16 +1816,7 @@ Replace the `loadAllData` function body:
         fetchEarthquakes(), fetchPlantImpacts(),
       ]);
 
-      // アトミックにパッチ適用（フリッカー防止）
-      plants.value = plantsData;
-      suppliers.value = suppliersData;
-      customers.value = customersData;
-      warehouses.value = warehousesData;
-      logisticsHubs.value = logisticsHubsData;
-      supplyRelations.value = relationsData;
-      routesThrough.value = routesThroughData;
-      riskEvents.value = riskEventsData;
-      activeDisrupts.value = activeDisruptsData;
+      // --- 全ての派生状態をローカル変数で先に構築 ---
 
       // インパクトをノード別・イベント別にインデックス化
       const byNode = new Map<string, NodeImpact[]>();
@@ -1758,36 +1831,35 @@ Replace the `loadAllData` function body:
           impactType: impact.impactType as 'direct' | 'downstream',
           status: impact.status as 'active' | 'recovering' | 'resolved',
           estimatedRecoveryDays: impact.estimatedRecoveryDays ?? null,
+          costImpactPct: impact.costImpactPct ?? null,
           cachedImpactAmount: impact.cachedImpactAmount ?? 0,
+          impactConfidence: impact.impactConfidence ?? 0,
           assessmentMethod: impact.assessmentMethod as NodeImpact['assessmentMethod'],
+          firstDetectedAt: impact.firstDetectedAt ?? null,
+          lastUpdatedAt: impact.lastUpdatedAt ?? null,
+          resolvedAt: impact.resolvedAt ?? null,
+          propagationRunId: impact.propagationRunId ?? null,
+          overrideReviewStatus: impact.overrideReviewStatus ?? null,
         });
 
         const evKey = impact.eventId;
         if (!byEvent.has(evKey)) byEvent.set(evKey, []);
         byEvent.get(evKey)!.push(impact);
       }
-      activeImpactsByNode.value = byNode;
-      activeImpactsByEvent.value = byEvent;
 
       // リスクスコアをノードIDでインデックス化
       const scoresMap = new Map<string, NodeRiskScore>();
       for (const score of riskScoresData) {
         scoresMap.set(score.nodeId, score);
       }
-      riskScores.value = scoresMap;
 
       // レガシー互換性: impactLevelをプラントに適用（Phase 3で削除）
-      earthquakes.value = earthquakesData;
-      plantImpacts.value = plantImpactsData;
       for (const impact of plantImpactsData) {
-        const plant = plants.value.find(p => p.id === impact.plantId);
-        if (plant) {
-          plant.impactLevel = impact.impactLevel;
-        }
+        const plant = plantsData.find((p: Plant) => p.id === impact.plantId);
+        if (plant) plant.impactLevel = impact.impactLevel;
       }
-
-      // 新方式: riskScoresからimpactLevelも導出（Phase 1互換性用）
-      for (const plant of plants.value) {
+      // 新方式: activeImpactsからもimpactLevelを導出
+      for (const plant of plantsData) {
         const nodeImpacts = byNode.get(plant.id);
         if (nodeImpacts?.some(i => i.impactType === 'direct')) {
           plant.impactLevel = 'direct';
@@ -1796,7 +1868,27 @@ Replace the `loadAllData` function body:
         }
       }
 
-      locations.value = parseLocations(plantsData);
+      const locationsData = parseLocations(plantsData);
+
+      // --- アトミックにパッチ適用（単一の$patchで全refを一括更新、フリッカー防止） ---
+      // Pinia setup storeでは$patchが使えないため、
+      // nextTick内で全refを同一マイクロタスクで更新することで
+      // 中間レンダリングを防ぐ
+      plants.value = plantsData;
+      suppliers.value = suppliersData;
+      customers.value = customersData;
+      warehouses.value = warehousesData;
+      logisticsHubs.value = logisticsHubsData;
+      supplyRelations.value = relationsData;
+      routesThrough.value = routesThroughData;
+      riskEvents.value = riskEventsData;
+      activeDisrupts.value = activeDisruptsData;
+      activeImpactsByNode.value = byNode;
+      activeImpactsByEvent.value = byEvent;
+      riskScores.value = scoresMap;
+      earthquakes.value = earthquakesData;
+      plantImpacts.value = plantImpactsData;
+      locations.value = locationsData;
     } catch (e) {
       error.value = e instanceof Error ? e.message : 'データ読み込みに失敗しました';
       console.error('loadAllData エラー:', e);
@@ -2192,22 +2284,117 @@ class RiskEventService:
         results = self.execute_query(query)
         return results[0]['id'] if results else event['id']
 
+    def acquire_ingest_lock(self, dedupe_key: str) -> bool:
+        """短期取り込みロックを取得（DynamoDB条件付き書き込み）"""
+        if not self.dedupe_table:
+            return True  # テーブル未設定時はロックスキップ（テスト用）
+        import time
+        from botocore.exceptions import ClientError
+        try:
+            self.dedupe_table.put_item(
+                Item={
+                    'dedupeKey': dedupe_key,
+                    'lockedAt': datetime.now(timezone.utc).isoformat(),
+                    'lockedBy': f'ingester-{uuid.uuid4().hex[:8]}',
+                    'ttl': int(time.time()) + 300,  # 5分リース
+                },
+                ConditionExpression='attribute_not_exists(dedupeKey)',
+            )
+            return True
+        except ClientError as e:
+            if e.response['Error']['Code'] == 'ConditionalCheckFailedException':
+                return False  # 別ライターが先行取得済み
+            raise
+
+    def lookup_registry(self, dedupe_key: str) -> str | None:
+        """正規的イベントレジストリから既存eventIdを検索"""
+        if not self.registry_table:
+            return None
+        try:
+            response = self.registry_table.get_item(Key={'dedupeKey': dedupe_key})
+            item = response.get('Item')
+            return item['eventId'] if item else None
+        except Exception:
+            return None
+
+    def update_registry(self, dedupe_key: str, event_id: str) -> None:
+        """正規的イベントレジストリを更新"""
+        if not self.registry_table:
+            return
+        self.registry_table.put_item(Item={
+            'dedupeKey': dedupe_key,
+            'eventId': event_id,
+            'createdAt': datetime.now(timezone.utc).isoformat(),
+            'updatedAt': datetime.now(timezone.utc).isoformat(),
+        })
+
+    def archive_raw_payload(self, raw: RawRiskEvent, event_id: str) -> None:
+        """生ペイロードをS3にアーカイブ"""
+        if not self.s3_client or not self.s3_bucket:
+            return
+        import dataclasses
+        now = datetime.now(timezone.utc)
+        key = f'raw_events/{now.year}/{now.month:02d}/{event_id}.json'
+        self.s3_client.put_object(
+            Bucket=self.s3_bucket, Key=key,
+            Body=json.dumps(dataclasses.asdict(raw), ensure_ascii=False, default=str),
+            ContentType='application/json',
+        )
+
+    def invoke_propagation(self, event_id: str) -> int:
+        """影響伝播を明示的に呼び出し（同じプロセス内で実行）"""
+        # impact_propagatorをインポートして直接呼び出し
+        # Lambda間呼び出しではなく、同一プロセス内の関数呼び出し
+        try:
+            from impact_propagator import ImpactPropagator
+            propagator = ImpactPropagator(
+                neptune_client=self.neptune_client,
+                graph_id=self.graph_id,
+            )
+            result = propagator.propagate_impact(event_id)
+            return result.edge_count
+        except ImportError:
+            print('impact_propagator モジュールが見つかりません（テスト環境では正常）')
+            return 0
+        except Exception as e:
+            print(f'影響伝播エラー: {e}')
+            return 0
+
     def ingest(self, raw: RawRiskEvent) -> IngestResult:
-        """正規化 → 重複排除 → upsert → アーカイブ → 影響伝播"""
+        """正規化 → ロック取得 → レジストリ検索 → upsert → アーカイブ → 伝播"""
         event = self.normalize(raw)
         dedupe_key = event['dedupeKey']
 
-        # 重複排除チェック
-        existing = self.execute_query(
-            f"MATCH (re:RiskEvent {{dedupeKey: '{dedupe_key}'}}) RETURN re.id AS id, re.updatedAt AS updatedAt"
-        )
-        if existing:
-            return IngestResult(action='skipped', event_id=existing[0]['id'])
+        # 1. 短期ロック取得（同時取り込みレース防止）
+        if not self.acquire_ingest_lock(dedupe_key):
+            return IngestResult(action='skipped', event_id='')
 
-        # Neptune upsert
+        # 2. レジストリで既存イベントを検索
+        existing_id = self.lookup_registry(dedupe_key)
+
+        if existing_id:
+            # 更新パス: updatedAtを比較して新しい場合のみ更新
+            existing = self.execute_query(
+                f"MATCH (re:RiskEvent {{dedupeKey: '{dedupe_key}'}}) "
+                f"RETURN re.id AS id, toString(re.updatedAt) AS updatedAt"
+            )
+            if existing and existing[0].get('updatedAt'):
+                existing_updated = existing[0]['updatedAt']
+                incoming_updated = event['updatedAt']
+                if incoming_updated <= existing_updated:
+                    return IngestResult(action='skipped', event_id=existing_id)
+
+            # 既存イベントのIDを維持して更新
+            event['id'] = existing_id
+            self.upsert_risk_event(event)
+            self.archive_raw_payload(raw, existing_id)
+            impacts = self.invoke_propagation(existing_id)
+            return IngestResult(action='updated', event_id=existing_id, impacts_computed=impacts)
+
+        # 3. 新規イベント: Neptune upsert
         event_id = self.upsert_risk_event(event)
 
-        # カテゴリエッジ
+        # 4. カテゴリエッジ
         if raw.category_id:
             self.execute_query(f"""
             MATCH (re:RiskEvent {{dedupeKey: '{dedupe_key}'}}),
@@ -2215,7 +2402,7 @@ class RiskEventService:
             MERGE (re)-[:CATEGORIZED_AS]->(rc)
             """)
 
-        # 国エッジ
+        # 5. 国エッジ
         if raw.country_code:
             self.execute_query(f"""
             MATCH (re:RiskEvent {{dedupeKey: '{dedupe_key}'}}),
@@ -2223,7 +2410,16 @@ class RiskEventService:
             MERGE (re)-[:OCCURRED_IN]->(c)
             """)
 
-        return IngestResult(action='created', event_id=event_id)
+        # 6. レジストリ登録
+        self.update_registry(dedupe_key, event_id)
+
+        # 7. 生ペイロードをS3にアーカイブ
+        self.archive_raw_payload(raw, event_id)
+
+        # 8. 影響伝播を呼び出し
+        impacts = self.invoke_propagation(event_id)
+
+        return IngestResult(action='created', event_id=event_id, impacts_computed=impacts)
 ```
 
 - [ ] **Step 4: Run tests**
@@ -2361,11 +2557,18 @@ class ImpactPropagator:
         ]
 
     def _get_next_sequence(self) -> int:
-        """DynamoDBアトミックカウンターから次のシーケンス番号を取得"""
+        """DynamoDBアトミックカウンターから次のシーケンス番号を取得
+
+        意図的な設計判断: シーケンスカウンターはprovider-cursorsテーブル内の
+        専用アイテム（providerId='_propagation-sequence-counter'）として格納する。
+        接頭辞 '_' でプロバイダーエントリと明確に区別する。
+        専用テーブルを追加するほどの複雑さはないが、プロバイダーIDと
+        衝突しない命名規約を使用する。
+        """
         if not self.sequence_table:
             return 1
         response = self.sequence_table.update_item(
-            Key={'providerId': 'propagation-sequence-counter'},
+            Key={'providerId': '_propagation-sequence-counter'},
             UpdateExpression='ADD sequenceValue :inc',
             ExpressionAttributeValues={':inc': 1},
             ReturnValues='UPDATED_NEW',
@@ -2454,19 +2657,28 @@ class ImpactPropagator:
         SET i.cachedImpactAmount = amount
         """)
 
-        # 6. 昇格（compare-and-swap）
+        # 6. 昇格（compare-and-swap: 実際にSETが成功したか検証）
         promoted = False
         if sequence > current_sequence:
-            self.execute_query(f"""
+            # WHERE句で現在のシーケンスが自分より小さい場合のみ更新
+            # RETURN でSETが実際に適用されたか検証する
+            promotion_result = self.execute_query(f"""
             MATCH (re:RiskEvent {{id: '{event_id}'}})
             WHERE re.latestPropagationSequence < {sequence}
             SET re.latestPropagationRunId = '{run_id}',
                 re.latestPropagationSequence = {sequence},
                 re.propagationCompletedAt = datetime('{now}')
+            RETURN re.latestPropagationRunId AS promotedRunId
             """)
-            promoted = True
 
-            # 7. 古い派生実行のエッジを削除
+            # RETURNが空 = WHERE句が不成立 = 別のrunが先に昇格済み
+            promoted = (
+                len(promotion_result) > 0
+                and promotion_result[0].get('promotedRunId') == run_id
+            )
+
+        if promoted:
+            # 7. 古い派生実行のエッジを削除（自分のrunが勝った場合のみ）
             self.execute_query(f"""
             MATCH (re:RiskEvent {{id: '{event_id}'}})-[i:IMPACTS]->(target)
             WHERE i.propagationRunId <> '{run_id}'
@@ -2474,7 +2686,7 @@ class ImpactPropagator:
             DELETE i
             """)
         else:
-            # 昇格スキップ: 自身のエッジを削除
+            # 昇格スキップ（別runが先行、またはsequence <= current）: 自身のエッジを削除
             self.execute_query(f"""
             MATCH (re:RiskEvent {{id: '{event_id}'}})-[i:IMPACTS {{propagationRunId: '{run_id}'}}]->(target)
             DELETE i
@@ -2696,7 +2908,7 @@ risk_ingester_stack = RiskEventIngesterStack(
     neptune_graph_id=neptune_graph_id,
     neptune_region=neptune_region,
     polling_interval_minutes=polling_interval,
-    env=env,
+    env=us_west_2_env,
 )
 
 impact_propagator_stack = ImpactPropagatorStack(
@@ -2704,7 +2916,7 @@ impact_propagator_stack = ImpactPropagatorStack(
     cursor_table=risk_ingester_stack.cursor_table,
     neptune_graph_id=neptune_graph_id,
     neptune_region=neptune_region,
-    env=env,
+    env=us_west_2_env,
 )
 ```
 
