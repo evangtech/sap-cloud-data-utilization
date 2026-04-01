@@ -2376,7 +2376,11 @@ class RiskEventService:
             print('impact_propagator モジュールが見つかりません（テスト環境では正常）')
             return 0
         except Exception as e:
-            print(f'影響伝播エラー: {e}')
+            print(json.dumps({
+                'level': 'ERROR', 'message': '影響伝播失敗',
+                'eventId': event_id, 'error': str(e),
+                'propagation_failed': True,
+            }))
             return 0
 
     def ingest(self, raw: RawRiskEvent) -> IngestResult:
@@ -2389,6 +2393,10 @@ class RiskEventService:
           IMPACTSエッジが未生成。action='created', impacts_computed=0 を返す。
           呼び出し元は impacts_computed=0 を検知して後続リトライをスケジュールできる。
           propagate_impact()は冪等なので再実行は安全。
+          運用上の可視化: 伝播失敗時は構造化エラーログを出力する（eventId, error,
+          propagation_failed=true）。CloudWatch Logs Insights またはメトリクスフィルタで
+          `propagation_failed=true` を検知し、アラームを設定すること。
+          これにより「イベントは存在するがIMPACTSが欠損」状態がサイレントにならない。
         - upsert自体が失敗: 例外がそのまま伝播する（IngestResultは返さない）。
           呼び出し元のtry/catchでハンドリングされる。
         設計原則: Neptuneへの書き込みが成功した時点でイベントは「存在する」。
