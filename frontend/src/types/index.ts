@@ -292,6 +292,181 @@ export interface ImpactAnalysis {
 }
 
 // ========================================
+// What-if Simulation Types
+// ========================================
+
+/**
+ * BOMアイテム（シミュレーション用）
+ */
+export interface SimBOMItem {
+  productId: string;
+  productName: string;
+  baseCostJpy: number;
+  salesPriceJpy: number;
+  marginRate: number;
+  materialId: string;
+  materialName: string;
+  materialUnitPrice: number;
+  materialCurrency: string;
+  hsCode: string;
+  originCountry: string;       // 素材の製造国 (関税判定用)
+  bomQuantity: number;
+  supplierId: string;
+  supplierName: string;
+  supplierCountry: string;     // サプライヤーの所在国 (地理集中度・リスク計算用)
+  isPrimary: boolean;
+}
+
+/**
+ * 関税データ（シミュレーション用）
+ */
+export interface SimTariff {
+  hsCode: string;
+  originCountry: string;
+  importingCountry: string;
+  tariffRatePct: number;
+  tariffType: string;
+}
+
+/**
+ * 受注データ（シミュレーション用）
+ */
+export interface SimOrder {
+  productId: string;
+  productName: string;
+  customerId: string;
+  customerName: string;
+  annualOrderQty: number;
+  unitPriceJpy: number;
+}
+
+/**
+ * 代替サプライヤーデータ（シミュレーション用）
+ */
+export interface SimAlternative {
+  supplierId: string;
+  supplierName: string;
+  altSupplierId: string;
+  altSupplierName: string;
+  qualityDiff: number;
+  priceDiffPct: number;
+  leadTimeDiff: number;
+  riskScoreDiff: number;
+}
+
+/**
+ * 為替レート
+ */
+export interface SimFXRate {
+  currencyCode: string;
+  countryCode: string;
+  exchangeRateJpy: number;
+}
+
+/**
+ * シミュレーション一括取得データ
+ */
+export interface SimulationData {
+  bomItems: SimBOMItem[];
+  tariffs: SimTariff[];
+  orders: SimOrder[];
+  alternatives: SimAlternative[];
+  fxRates: SimFXRate[];
+}
+
+/**
+ * 製品別シミュレーション結果
+ */
+export interface ProductSimResult {
+  productId: string;
+  productName: string;
+  baseCost: number;
+  newCost: number;
+  delta: number;
+  deltaPct: number;
+  baseMargin: number;
+  newMargin: number;
+  isDisrupted: boolean;
+  components: ComponentSimResult[];
+}
+
+/**
+ * 部品別コスト内訳
+ */
+export interface ComponentSimResult {
+  materialId: string;
+  materialName: string;
+  supplierId: string;
+  supplierName: string;
+  isAlternative: boolean;
+  unitPriceJpy: number;
+  tariffRate: number;
+  costWithTariff: number;
+  bomQuantity: number;
+  totalCost: number;
+  baselineTotalCost: number;
+}
+
+/**
+ * ポートフォリオ影響サマリー
+ */
+export interface PortfolioImpact {
+  totalDelta: number;
+  totalDeltaPct: number;
+  affectedProducts: number;
+  disruptedProducts: number;
+  totalBaseAmount: number;
+  totalNewAmount: number;
+}
+
+/**
+ * 代替推奨
+ */
+export interface AlternativeRecommendation {
+  disabledSupplierId: string;
+  disabledSupplierName: string;
+  altSupplierId: string;
+  altSupplierName: string;
+  priceDiffPct: number;
+  qualityDiff: number;
+  leadTimeDiff: number;
+  materialIds: string[];
+}
+
+/**
+ * 供給リスク指標 (HHI + 集中度)
+ */
+export interface SupplyRiskMetrics {
+  singleSource: { before: number; after: number };
+  supplierHHI: { before: number; after: number };
+  geoConcentration: { before: number; after: number };
+  disruptedMaterials: number;
+  cautions: string[];
+}
+
+/**
+ * 切替トレードオフサマリー
+ */
+export interface SwitchTradeoffSummary {
+  originalSupplier: string;
+  alternativeSupplier: string;
+  priceDiffPct: number;
+  leadTimeDiff: number;
+  qualityDiff: number;
+  affectedMaterialCount: number;
+  singleSourceReduction: number;  // 単一ソース→複数ソースになる素材数
+}
+
+/**
+ * コスト変動要因セグメント
+ */
+export interface CostDriverSegment {
+  label: string;
+  value: number;
+  type: 'tariff' | 'fx' | 'supplier' | 'net';
+}
+
+// ========================================
 // API Response Types
 // ========================================
 

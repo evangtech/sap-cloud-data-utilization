@@ -453,6 +453,7 @@ def create_supplies_edges() -> None:
         # supplier_id, material_id, is_primary
         ("SUP001", "MAT001", True),   # TSMC → 先端ロジック半導体
         ("SUP002", "MAT002", True),   # Samsung → HBM3e
+        ("SUP002", "MAT005", True),   # Samsung → 有機ELディスプレイ
         ("SUP003", "MAT003", True),   # Infineon → SiC MOSFET
         ("SUP004", "MAT004", True),   # Foxconn → HDI基板
         ("SUP005", "MAT006", False),  # BYD → バッテリー（代替）

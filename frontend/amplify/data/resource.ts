@@ -360,6 +360,89 @@ const schema = a.schema({
   }),
 
   // ========================================
+  // カスタム型定義（What-if シミュレーション用）
+  // ========================================
+
+  /**
+   * シミュレーション用BOMアイテム
+   */
+  SimBOMItem: a.customType({
+    productId: a.string().required(),
+    productName: a.string(),
+    baseCostJpy: a.float(),
+    salesPriceJpy: a.float(),
+    marginRate: a.float(),
+    materialId: a.string().required(),
+    materialName: a.string(),
+    materialUnitPrice: a.float(),
+    materialCurrency: a.string(),
+    hsCode: a.string(),
+    originCountry: a.string(),
+    bomQuantity: a.integer(),
+    supplierId: a.string(),
+    supplierName: a.string(),
+    supplierCountry: a.string(),
+    isPrimary: a.boolean(),
+  }),
+
+  /**
+   * シミュレーション用関税データ
+   */
+  SimTariff: a.customType({
+    hsCode: a.string().required(),
+    originCountry: a.string().required(),
+    importingCountry: a.string().required(),
+    tariffRatePct: a.float(),
+    tariffType: a.string(),
+  }),
+
+  /**
+   * シミュレーション用受注データ
+   */
+  SimOrder: a.customType({
+    productId: a.string().required(),
+    productName: a.string(),
+    customerId: a.string().required(),
+    customerName: a.string(),
+    annualOrderQty: a.integer(),
+    unitPriceJpy: a.float(),
+  }),
+
+  /**
+   * シミュレーション用代替サプライヤーデータ
+   */
+  SimAlternative: a.customType({
+    supplierId: a.string().required(),
+    supplierName: a.string(),
+    altSupplierId: a.string().required(),
+    altSupplierName: a.string(),
+    qualityDiff: a.integer(),
+    priceDiffPct: a.float(),
+    leadTimeDiff: a.integer(),
+    riskScoreDiff: a.integer(),
+  }),
+
+  /**
+   * シミュレーション用為替レート
+   */
+  SimFXRate: a.customType({
+    currencyCode: a.string().required(),
+    countryCode: a.string().required(),
+    exchangeRateJpy: a.float(),
+  }),
+
+  /**
+   * シミュレーションデータ（一括取得結果）
+   */
+  SimulationData: a.customType({
+    bomItems: a.ref('SimBOMItem').array(),
+    tariffs: a.ref('SimTariff').array(),
+    orders: a.ref('SimOrder').array(),
+    alternatives: a.ref('SimAlternative').array(),
+    fxRates: a.ref('SimFXRate').array(),
+  }),
+
+  // ========================================
   // DynamoDBモデル（時系列データ）
   // ========================================
 
@@ -520,6 +603,15 @@ const schema = a.schema({
       plantId: a.string().required(),
     })
     .returns(a.ref('ProductWithBOM').array())
+    .handler(a.handler.function(neptuneQueryFunction))
+    .authorization((allow) => [allow.publicApiKey()]),
+
+  /**
+   * What-if シミュレーション用データ一括取得
+   */
+  getSimulationData: a
+    .query()
+    .returns(a.ref('SimulationData'))
     .handler(a.handler.function(neptuneQueryFunction))
     .authorization((allow) => [allow.publicApiKey()]),
 

@@ -20,18 +20,34 @@ interface NeptuneResult {
 
 /**
  * Neptuneクエリを実行
+ * エラー時は throw — 呼び出し元で partial data を隠さない
  */
 async function executeQuery(query: string): Promise<NeptuneResult> {
-  try {
-    const command = new ExecuteQueryCommand({
-      graphIdentifier: NEPTUNE_GRAPH_ID,
-      queryString: query,
-      language: 'OPEN_CYPHER',
-    });
+  const command = new ExecuteQueryCommand({
+    graphIdentifier: NEPTUNE_GRAPH_ID,
+    queryString: query,
+    language: 'OPEN_CYPHER',
+  });
 
-    const response = await client.send(command);
-    const payload = await response.payload?.transformToString();
-    return JSON.parse(payload || '{"results": []}');
+  const response = await client.send(command);
+  const payload = await response.payload?.transformToString();
+  if (!payload) {
+    throw new Error('Neptune returned empty payload');
+  }
+  const parsed = JSON.parse(payload);
+  if (!parsed.results) {
+    throw new Error(`Neptune returned no results field: ${JSON.stringify(parsed).slice(0, 200)}`);
+  }
+  return parsed;
+}
+
+/**
+ * 既存のクエリで try/catch が必要な場合のみ使用 (非シミュレーション系)
+ * シミュレーション以外の既存クエリは後方互換性のため残す
+ */
+async function executeQuerySafe(query: string): Promise<NeptuneResult> {
+  try {
+    return await executeQuery(query);
   } catch (error) {
     console.error('Neptune query error:', error);
     return { results: [], error: String(error) };
@@ -56,7 +72,7 @@ async function getPlants() {
       c.region as city
     ORDER BY p.name
   `;
-  const result = await executeQuery(query);
+  const result = await executeQuerySafe(query);
   return result.results || [];
 }
 
@@ -75,7 +91,7 @@ async function getSuppliers() {
       s.lon as longitude
     ORDER BY s.name
   `;
-  const result = await executeQuery(query);
+  const result = await executeQuerySafe(query);
   return result.results || [];
 }
 
@@ -94,7 +110,7 @@ async function getCustomers() {
       c.lon as longitude
     ORDER BY c.name
   `;
-  const result = await executeQuery(query);
+  const result = await executeQuerySafe(query);
   return result.results || [];
 }
 
@@ -119,7 +135,7 @@ async function getSupplyRelations() {
       to.lat as toLat,
       to.lon as toLon
   `;
-  const relationsResult = await executeQuery(relationsQuery);
+  const relationsResult = await executeQuerySafe(relationsQuery);
   const relations = relationsResult.results || [];
 
   // 製品情報を取得（fromId + toId ペアごとに紐付く製品を特定）
@@ -136,8 +152,8 @@ async function getSupplyRelations() {
     RETURN p.id as fromId, dest.id as toId, prod.id as productId, prod.description as productName
   `;
   const [suppProdResult, plantProdResult] = await Promise.all([
-    executeQuery(supplierProductsQuery),
-    executeQuery(plantProductsQuery),
+    executeQuerySafe(supplierProductsQuery),
+    executeQuerySafe(plantProductsQuery),
   ]);
   const productEdges = [
     ...(suppProdResult.results || []),
@@ -185,7 +201,7 @@ async function getAffectedPlantsByLocation(pref: string, city?: string) {
       p.lat as latitude,
       p.lon as longitude
   `;
-  const result = await executeQuery(query);
+  const result = await executeQuerySafe(query);
   return result.results || [];
 }
 
@@ -211,7 +227,7 @@ async function getDownstreamImpact(plantIds: string[]) {
       length(path) as depth
     ORDER BY depth
   `;
-  const result = await executeQuery(query);
+  const result = await executeQuerySafe(query);
   return result.results || [];
 }
 
@@ -231,7 +247,7 @@ async function getImpactedOrderAmount(plantIds: string[]) {
       count(DISTINCT prod) as orderCount,
       count(DISTINCT c) as customerCount
   `;
-  const result = await executeQuery(query);
+  const result = await executeQuerySafe(query);
   return result.results?.[0] || { totalAmount: 0, orderCount: 0, customerCount: 0 };
 }
 
@@ -289,7 +305,7 @@ async function getSalesOrdersByNode(nodeType: string, nodeId: string) {
   }
 
   if (!query) return [];
-  const result = await executeQuery(query);
+  const result = await executeQuerySafe(query);
   return result.results || [];
 }
 
@@ -347,7 +363,7 @@ async function getPurchaseOrdersByNode(nodeType: string, nodeId: string) {
   }
 
   if (!query) return [];
-  const result = await executeQuery(query);
+  const result = await executeQuerySafe(query);
   return result.results || [];
 }
 
@@ -369,7 +385,7 @@ async function getProducts() {
       pl.name as plantName
     ORDER BY p.description
   `;
-  const result = await executeQuery(query);
+  const result = await executeQuerySafe(query);
   return result.results || [];
 }
 
@@ -388,7 +404,7 @@ async function getProductsWithBOM(plantId: string) {
       prod.product_group as type,
       prod.margin_rate as unit
   `;
-  const productsResult = await executeQuery(productsQuery);
+  const productsResult = await executeQuerySafe(productsQuery);
   const products = productsResult.results || [];
 
   if (products.length === 0) {
@@ -411,7 +427,7 @@ async function getProductsWithBOM(plantId: string) {
       supplier.id as supplierPlantId,
       supplier.name as supplierPlantName
   `;
-  const bomResult = await executeQuery(bomQuery);
+  const bomResult = await executeQuerySafe(bomQuery);
   const bomRows = bomResult.results || [];
 
   // 製品ごとにBOMをグループ化
@@ -473,7 +489,7 @@ async function getImpactedProducts(plantId: string, impactedPlantIds: string[]) 
       MATCH (prod:Product)-[:PRODUCED_AT]->(pl:Plant {id: '${plantId}'})
       RETURN prod.id as productId, prod.description as productName
     `;
-    const manufacturedResult = await executeQuery(manufacturedQuery);
+    const manufacturedResult = await executeQuerySafe(manufacturedQuery);
     manufacturedProducts = manufacturedResult.results || [];
   }
 
@@ -491,7 +507,7 @@ async function getImpactedProducts(plantId: string, impactedPlantIds: string[]) 
       prod.description as productName,
       'direct' as impactType
   `;
-  const directResult = await executeQuery(directQuery);
+  const directResult = await executeQuerySafe(directQuery);
   const directRows = directResult.results || [];
 
   // BOM経由の影響を確認
@@ -511,7 +527,7 @@ async function getImpactedProducts(plantId: string, impactedPlantIds: string[]) 
       prod.description as parentProductName,
       'bom' as impactType
   `;
-  const bomResult = await executeQuery(bomQuery);
+  const bomResult = await executeQuerySafe(bomQuery);
   const bomRows = bomResult.results || [];
 
   // 結果を統合
@@ -608,7 +624,7 @@ async function getSubstitutePlants(plantId: string, targetProductIds?: string[])
       impacted.lon as lon,
       collect({id: prod.id, name: prod.description, type: prod.product_group}) as products
   `;
-  const impactedResult = await executeQuery(impactedQuery);
+  const impactedResult = await executeQuerySafe(impactedQuery);
   const impactedInfo = impactedResult.results?.[0];
   if (!impactedInfo) return [];
 
@@ -639,7 +655,7 @@ async function getSubstitutePlants(plantId: string, targetProductIds?: string[])
       collect(DISTINCT {id: prod.id, name: prod.description}) as products
     ORDER BY candidate.capacity DESC
   `;
-  const candidateResult = await executeQuery(candidateQuery);
+  const candidateResult = await executeQuerySafe(candidateQuery);
   const candidates = candidateResult.results || [];
 
   if (candidates.length === 0) return [];
@@ -649,7 +665,7 @@ async function getSubstitutePlants(plantId: string, targetProductIds?: string[])
     MATCH (impacted:Plant {id: '${plantId}'})-[:SUPPLIES_TO*1..2]->(c:Customer)
     RETURN DISTINCT c.id as id, c.name as name, c.lat as lat, c.lon as lon
   `;
-  const downstreamResult = await executeQuery(downstreamQuery);
+  const downstreamResult = await executeQuerySafe(downstreamQuery);
   const downstreamCustomers = downstreamResult.results || [];
 
   // ハバーサイン距離計算（km）
@@ -768,6 +784,173 @@ async function getSubstitutePlants(plantId: string, targetProductIds?: string[])
 }
 
 /**
+ * What-if シミュレーション用データ一括取得
+ * BOM構成 + 素材価格 + サプライヤー + 関税 + 受注 + 代替 + 為替
+ */
+async function getSimulationData() {
+  // Sub-query 1: BOM + Material + Supplier
+  // originCountry = material の製造国 (関税判定に使用)
+  // supplierCountry = supplier の所在国 (地理集中度・リスク計算に使用)
+  // Join through PRODUCED_AT → Plant ← SUPPLIES_TO to ensure a supplier
+  // is only associated with a product if it supplies a plant where that product is made.
+  // DISTINCT removes duplicates when a supplier supplies multiple plants for the same product.
+  const bomQuery = `
+    MATCH (p:Product)-[bom:HAS_COMPONENT]->(m:Material)
+    OPTIONAL MATCH (p)-[:PRODUCED_AT]->(plt:Plant)<-[:SUPPLIES_TO]-(s:Supplier)-[sup:SUPPLIES]->(m)
+    OPTIONAL MATCH (m)-[:CLASSIFIED_AS]->(hs:HSCode)
+    RETURN DISTINCT
+      p.id AS productId, p.description AS productName,
+      p.cost_estimate_jpy AS baseCostJpy,
+      p.sales_price_jpy AS salesPriceJpy,
+      p.margin_rate AS marginRate,
+      m.id AS materialId, m.description AS materialName,
+      m.unit_price AS materialUnitPrice, m.currency AS materialCurrency,
+      m.origin_country AS originCountry,
+      hs.code AS hsCode,
+      bom.quantity AS bomQuantity,
+      s.id AS supplierId, s.name AS supplierName,
+      s.country_code AS supplierCountry,
+      sup.is_primary AS isPrimary
+    ORDER BY p.id, m.id
+  `;
+
+  // Sub-query 2: Tariffs
+  const tariffQuery = `
+    MATCH (h:HSCode)-[tar:TARIFF_APPLIES]->(c:Country)
+    RETURN
+      h.code AS hsCode,
+      c.code AS originCountry,
+      tar.importing_country AS importingCountry,
+      tar.tariff_rate_pct AS tariffRatePct,
+      tar.tariff_type AS tariffType
+  `;
+
+  // Sub-query 3: Orders
+  const orderQuery = `
+    MATCH (p:Product)-[ord:ORDERED_BY]->(cust:Customer)
+    RETURN
+      p.id AS productId, p.description AS productName,
+      cust.id AS customerId, cust.name AS customerName,
+      ord.annual_order_qty AS annualOrderQty,
+      ord.unit_price_jpy AS unitPriceJpy
+  `;
+
+  // Sub-query 4: Alternatives
+  const altQuery = `
+    MATCH (s:Supplier)-[alt:ALTERNATIVE_TO]->(altSup:Supplier)
+    RETURN
+      s.id AS supplierId, s.name AS supplierName,
+      altSup.id AS altSupplierId, altSup.name AS altSupplierName,
+      alt.quality_score_diff AS qualityDiff,
+      alt.price_diff_pct AS priceDiffPct,
+      alt.lead_time_diff_days AS leadTimeDiff,
+      alt.risk_score_diff AS riskScoreDiff
+  `;
+
+  // Sub-query 5: FX Rates (from Country nodes)
+  const fxQuery = `
+    MATCH (c:Country)
+    WHERE c.exchange_rate_jpy IS NOT NULL
+    RETURN
+      c.code AS countryCode,
+      c.exchange_rate_jpy AS exchangeRateJpy
+  `;
+
+  // Execute all in parallel
+  const [bomResult, tariffResult, orderResult, altResult, fxResult] =
+    await Promise.all([
+      executeQuery(bomQuery),
+      executeQuery(tariffQuery),
+      executeQuery(orderQuery),
+      executeQuery(altQuery),
+      executeQuery(fxQuery),
+    ]);
+
+  // Build country code → exchange_rate_jpy map
+  const countryFx = new Map<string, number>();
+  for (const row of fxResult.results || []) {
+    countryFx.set(row.countryCode, row.exchangeRateJpy);
+  }
+
+  // Static currency → home country mapping
+  // exchange_rate_jpy on Country nodes = foreign units per 1 JPY
+  const CURRENCY_COUNTRY: Record<string, string> = {
+    JPY: 'JP', USD: 'US', EUR: 'DE', CNY: 'CN', KRW: 'KR',
+    TWD: 'TW', THB: 'TH', VND: 'VN', INR: 'IN', MXN: 'MX',
+    AUD: 'AU', SGD: 'SG', MYR: 'MY', PHP: 'PH', BRL: 'BR',
+    RUB: 'RU', IDR: 'ID',
+  };
+
+  // Collect unique currencies from BOM data, then map to correct country
+  const seenCurrencies = new Set<string>();
+  for (const row of bomResult.results || []) {
+    if (row.materialCurrency) seenCurrencies.add(row.materialCurrency);
+  }
+  seenCurrencies.add('JPY');
+
+  const fxRates: any[] = [];
+  for (const currency of seenCurrencies) {
+    const countryCode = CURRENCY_COUNTRY[currency];
+    if (!countryCode) continue;
+    const rate = countryFx.get(countryCode);
+    if (rate !== undefined) {
+      fxRates.push({
+        currencyCode: currency,
+        countryCode,
+        exchangeRateJpy: rate,
+      });
+    }
+  }
+
+  return {
+    bomItems: (bomResult.results || []).map((r: any) => ({
+      productId: r.productId,
+      productName: r.productName,
+      baseCostJpy: r.baseCostJpy,
+      salesPriceJpy: r.salesPriceJpy,
+      marginRate: r.marginRate,
+      materialId: r.materialId,
+      materialName: r.materialName,
+      materialUnitPrice: r.materialUnitPrice,
+      materialCurrency: r.materialCurrency,
+      hsCode: r.hsCode,
+      originCountry: r.originCountry,
+      bomQuantity: r.bomQuantity,
+      supplierId: r.supplierId,
+      supplierName: r.supplierName,
+      supplierCountry: r.supplierCountry,
+      isPrimary: r.isPrimary,
+    })),
+    tariffs: (tariffResult.results || []).map((r: any) => ({
+      hsCode: r.hsCode,
+      originCountry: r.originCountry,
+      importingCountry: r.importingCountry,
+      tariffRatePct: r.tariffRatePct,
+      tariffType: r.tariffType,
+    })),
+    orders: (orderResult.results || []).map((r: any) => ({
+      productId: r.productId,
+      productName: r.productName,
+      customerId: r.customerId,
+      customerName: r.customerName,
+      annualOrderQty: r.annualOrderQty,
+      unitPriceJpy: r.unitPriceJpy,
+    })),
+    alternatives: (altResult.results || []).map((r: any) => ({
+      supplierId: r.supplierId,
+      supplierName: r.supplierName,
+      altSupplierId: r.altSupplierId,
+      altSupplierName: r.altSupplierName,
+      qualityDiff: r.qualityDiff,
+      priceDiffPct: r.priceDiffPct,
+      leadTimeDiff: r.leadTimeDiff,
+      riskScoreDiff: r.riskScoreDiff,
+    })),
+    fxRates,
+  };
+}
+
+/**
  * Lambda ハンドラー
  */
 export const handler = async (event: any) => {
@@ -815,6 +998,9 @@ export const handler = async (event: any) => {
 
       case 'getImpactedProducts':
         return await getImpactedProducts(args.plantId, args.impactedPlantIds || []);
+
+      case 'getSimulationData':
+        return await getSimulationData();
 
       default:
         throw new Error(`Unknown field: ${fieldName}`);

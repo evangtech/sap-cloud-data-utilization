@@ -12,6 +12,7 @@ import type {
   PlantImpactStatus,
   DashboardStats,
   Location,
+  SimFXRate,
 } from '@/types';
 
 // Amplify Data Client（遅延初期化）
@@ -396,6 +397,149 @@ export async function fetchDashboardStats(): Promise<DashboardStats> {
     impactedOrderAmount: 0,
     impactedOrderCount: 0,
   };
+}
+
+// ========================================
+// What-if シミュレーション
+// ========================================
+
+/**
+ * シミュレーション用データを一括取得（Neptune Analytics）
+ */
+export async function fetchSimulationData(): Promise<{
+  bomItems: any[];
+  tariffs: any[];
+  orders: any[];
+  alternatives: any[];
+  fxRates: any[];
+}> {
+  const c = await getClient();
+  if (!c) {
+    throw new Error('バックエンドに接続できません。ネットワーク接続を確認してください。');
+  }
+
+  try {
+    const { data, errors } = await c.queries.getSimulationData();
+    if (errors && errors.length > 0) {
+      console.error('シミュレーションデータ取得エラー:', errors);
+      throw new Error(`データ取得エラー: ${errors[0]?.message || '不明なエラー'}`);
+    }
+    if (!data) {
+      throw new Error('シミュレーションデータが空です。データが登録されているか確認してください。');
+    }
+    return {
+      bomItems: (data?.bomItems || []).map((r: any) => ({
+        productId: r?.productId || '',
+        productName: r?.productName || '',
+        baseCostJpy: r?.baseCostJpy || 0,
+        salesPriceJpy: r?.salesPriceJpy || 0,
+        marginRate: r?.marginRate || 0,
+        materialId: r?.materialId || '',
+        materialName: r?.materialName || '',
+        materialUnitPrice: r?.materialUnitPrice || 0,
+        materialCurrency: r?.materialCurrency || 'JPY',
+        hsCode: r?.hsCode || '',
+        originCountry: r?.originCountry || '',
+        bomQuantity: r?.bomQuantity || 0,
+        supplierId: r?.supplierId || '',
+        supplierName: r?.supplierName || '',
+        supplierCountry: r?.supplierCountry || '',
+        isPrimary: r?.isPrimary ?? false,
+      })),
+      tariffs: (data?.tariffs || []).map((r: any) => ({
+        hsCode: r?.hsCode || '',
+        originCountry: r?.originCountry || '',
+        importingCountry: r?.importingCountry || '',
+        tariffRatePct: r?.tariffRatePct || 0,
+        tariffType: r?.tariffType || '',
+      })),
+      orders: (data?.orders || []).map((r: any) => ({
+        productId: r?.productId || '',
+        productName: r?.productName || '',
+        customerId: r?.customerId || '',
+        customerName: r?.customerName || '',
+        annualOrderQty: r?.annualOrderQty || 0,
+        unitPriceJpy: r?.unitPriceJpy || 0,
+      })),
+      alternatives: (data?.alternatives || []).map((r: any) => ({
+        supplierId: r?.supplierId || '',
+        supplierName: r?.supplierName || '',
+        altSupplierId: r?.altSupplierId || '',
+        altSupplierName: r?.altSupplierName || '',
+        qualityDiff: r?.qualityDiff || 0,
+        priceDiffPct: r?.priceDiffPct || 0,
+        leadTimeDiff: r?.leadTimeDiff || 0,
+        riskScoreDiff: r?.riskScoreDiff || 0,
+      })),
+      fxRates: (data?.fxRates || []).map((r: any) => ({
+        currencyCode: r?.currencyCode || '',
+        countryCode: r?.countryCode || '',
+        exchangeRateJpy: r?.exchangeRateJpy || 1,
+      })),
+    };
+  } catch (error) {
+    // Re-throw our own errors (from above checks)
+    if (error instanceof Error && (
+      error.message.startsWith('データ') || error.message.startsWith('バック') || error.message.startsWith('シミュレーション')
+    )) {
+      throw error;
+    }
+    console.error('シミュレーションデータ取得エラー:', error);
+    throw new Error('シミュレーションデータの取得に失敗しました。しばらく経ってから再度お試しください。');
+  }
+}
+
+// ========================================
+// ライブ為替レート
+// ========================================
+
+/** 通貨コード → 国コード マッピング */
+const CURRENCY_COUNTRY: Record<string, string> = {
+  USD: 'US', EUR: 'DE', CNY: 'CN', KRW: 'KR', TWD: 'TW',
+  SGD: 'SG', THB: 'TH', GBP: 'GB', AUD: 'AU', CAD: 'CA',
+  INR: 'IN', MYR: 'MY', PHP: 'PH', IDR: 'ID', VND: 'VN',
+};
+
+/**
+ * ライブ為替レートを取得 (Frankfurter API — ECB データ、無料、APIキー不要)
+ *
+ * 返り値の exchangeRateJpy は「1 JPY = X 外貨」の形式。
+ * 例: USD の場合 ≈ 0.00633 (1 JPY ≈ 0.00633 USD)
+ *
+ * @param currencies BOM で使用されている通貨コード (JPY 除く)
+ * @returns 取得できた通貨のレート配列。API 失敗時は空配列。
+ */
+export async function fetchLiveFxRates(currencies: string[]): Promise<SimFXRate[]> {
+  const needed = currencies.filter(c => c && c !== 'JPY');
+  if (needed.length === 0) return [];
+
+  try {
+    // Frankfurter API: base=JPY → 各通貨を "1 JPY = X 外貨" で返す
+    const symbols = needed.join(',');
+    const res = await fetch(
+      `https://api.frankfurter.dev/v1/latest?base=JPY&symbols=${symbols}`,
+      { signal: AbortSignal.timeout(5000) }
+    );
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const data = await res.json();
+
+    const rates: SimFXRate[] = [];
+    for (const cur of needed) {
+      const rate = data.rates?.[cur];
+      if (rate && rate > 0) {
+        rates.push({
+          currencyCode: cur,
+          countryCode: CURRENCY_COUNTRY[cur] || '',
+          exchangeRateJpy: rate,
+        });
+      }
+    }
+    console.log(`[FX] ライブ為替レート取得: ${rates.length}/${needed.length} 通貨 (${data.date})`);
+    return rates;
+  } catch (error) {
+    console.warn('[FX] ライブ為替レート取得失敗 — Neptune データにフォールバック:', error);
+    return [];
+  }
 }
 
 // ========================================
