@@ -1,5 +1,5 @@
 import { defineBackend } from '@aws-amplify/backend';
-import { data, neptuneQueryFunction, nlQueryFunction, eventQueryFunction } from './data/resource';
+import { data, neptuneQueryFunction, nlQueryFunction, eventQueryFunction, neptuneRiskQueryFunction } from './data/resource';
 import { auth } from './auth/resource';
 import { PolicyStatement } from 'aws-cdk-lib/aws-iam';
 
@@ -13,10 +13,24 @@ const backend = defineBackend({
   neptuneQueryFunction,
   nlQueryFunction,
   eventQueryFunction,
+  neptuneRiskQueryFunction,
 });
 
 // Neptune Analytics へのアクセス権限を追加
 backend.neptuneQueryFunction.resources.lambda.addToRolePolicy(
+  new PolicyStatement({
+    actions: [
+      'neptune-graph:ExecuteQuery',
+      'neptune-graph:GetQueryStatus',
+      'neptune-graph:CancelQuery',
+      'neptune-graph:ReadDataViaQuery',
+    ],
+    resources: ['arn:aws:neptune-graph:us-west-2:*:graph/g-844qqbri1a'],
+  })
+);
+
+// リスク分析クエリ関数: Neptune へのアクセス権限
+backend.neptuneRiskQueryFunction.resources.lambda.addToRolePolicy(
   new PolicyStatement({
     actions: [
       'neptune-graph:ExecuteQuery',
