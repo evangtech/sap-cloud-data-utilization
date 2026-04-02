@@ -7,15 +7,17 @@ import { ref, onMounted, computed } from 'vue';
 import { useSupplyChainStore } from '@/stores/supplyChain';
 import { useNotificationStore } from '@/stores/notification';
 import SupplyChainMap from '@/components/SupplyChainMap.vue';
-import FactoryList from '@/components/FactoryList.vue';
 import MapLegend from '@/components/MapLegend.vue';
-import NlSearchBar from '@/components/NlSearchBar.vue';
+import KpiStrip from '@/components/KpiStrip.vue';
+import MapControls from '@/components/MapControls.vue';
+import RiskPanel from '@/components/RiskPanel.vue';
 import type { Plant } from '@/types';
 import type { NlQueryResult } from '@/services/api';
 
 const store = useSupplyChainStore();
 const notificationStore = useNotificationStore();
 const mapRef = ref<InstanceType<typeof SupplyChainMap> | null>(null);
+const riskPanelRef = ref<InstanceType<typeof RiskPanel> | null>(null);
 const showSidebar = ref(true);
 const isFullscreen = ref(false);
 const nlHighlightIds = ref<Set<string>>(new Set());
@@ -157,8 +159,13 @@ onMounted(async () => {
 
 <template>
   <div class="map-page">
+    <KpiStrip
+      @open-tab="(tab: string) => riskPanelRef?.openTab(tab)"
+      @open-tab-filter="(tab: string) => riskPanelRef?.openTab(tab)"
+    />
     <main class="workspace-grid">
       <aside class="workspace-sidebar" :class="{ hidden: !showSidebar }">
+        <MapControls @nl-result="handleNlResult" @nl-clear="handleNlClear" />
         <section class="rail-card rail-card-summary">
           <div class="rail-heading">運用概要</div>
           <div class="rail-subtitle">供給ネットワークの現在値</div>
@@ -200,9 +207,6 @@ onMounted(async () => {
           </div>
         </section>
 
-        <section class="rail-card rail-card-list">
-          <FactoryList @select-plant="handlePlantSelect" @focus-node="handleFocusNode" />
-        </section>
       </aside>
 
       <section class="workspace-main">
@@ -239,10 +243,6 @@ onMounted(async () => {
                 </svg>
               </button>
             </div>
-          </div>
-
-          <div class="map-search-bar">
-            <NlSearchBar @result="handleNlResult" @clear="handleNlClear" />
           </div>
 
           <div class="map-frame">
@@ -282,6 +282,21 @@ onMounted(async () => {
           </div>
         </div>
       </section>
+
+      <RiskPanel ref="riskPanelRef">
+        <template #events>
+          <div class="tab-placeholder">リスクイベント（Section 4で実装）</div>
+        </template>
+        <template #impacts>
+          <div class="tab-placeholder">アクティブインパクト（Section 4で実装）</div>
+        </template>
+        <template #corridors>
+          <div class="tab-placeholder">ルート分析（Section 4で実装）</div>
+        </template>
+        <template #recovery>
+          <div class="tab-placeholder">復旧状況（Section 4で実装）</div>
+        </template>
+      </RiskPanel>
     </main>
 
     <Transition name="fade">
