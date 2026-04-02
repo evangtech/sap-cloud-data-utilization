@@ -6,9 +6,14 @@
 import { ref, computed, watch } from 'vue';
 import { useSupplyChainStore } from '@/stores/supplyChain';
 import { fetchRiskEvents, fetchImpactsByEvent, fetchRiskEventChain } from '@/services/api';
+import { updateEventStatus } from '@/services/notificationApi';
 import type { GraphRiskEvent, EventImpact } from '@/types';
 
 const store = useSupplyChainStore();
+
+const emit = defineEmits<{
+  (e: 'focus-event', ev: { latitude: number; longitude: number }): void;
+}>();
 
 const eventTypeFilter = ref('');
 const includeResolved = ref(false);
@@ -74,7 +79,37 @@ function formatJpy(amount: number): string {
   return `¥${amount.toLocaleString()}`;
 }
 
-function selectEvent(ev: GraphRiskEvent) { store.selectRiskEvent(ev); }
+function selectEvent(ev: GraphRiskEvent) {
+  store.selectRiskEvent(ev);
+  emit('focus-event', { latitude: ev.latitude, longitude: ev.longitude });
+}
+
+const dismissReason = ref('');
+const actionLoading = ref(false);
+
+async function confirmEvent(eventId: string) {
+  actionLoading.value = true;
+  try {
+    await updateEventStatus(eventId, 'CONFIRMED', 'analyst');
+    // ローカル状態を更新
+    const ev = store.riskEvents.find(e => e.id === eventId);
+    if (ev) (ev as any).reviewStatus = 'confirmed';
+  } finally { actionLoading.value = false; }
+}
+
+async function dismissEvent(eventId: string) {
+  if (!dismissReason.value.trim()) {
+    alert('却下理由を入力してください');
+    return;
+  }
+  actionLoading.value = true;
+  try {
+    await updateEventStatus(eventId, 'DISMISSED', `analyst:${dismissReason.value}`);
+    const ev = store.riskEvents.find(e => e.id === eventId);
+    if (ev) (ev as any).reviewStatus = 'dismissed';
+    dismissReason.value = '';
+  } finally { actionLoading.value = false; }
+}
 </script>
 
 <template>
@@ -138,8 +173,14 @@ function selectEvent(ev: GraphRiskEvent) { store.selectRiskEvent(ev); }
               </div>
             </div>
             <div v-if="ev.reviewStatus === 'pending'" class="actions">
-              <button class="btn btn-ok">確認</button>
-              <button class="btn btn-ng">却下</button>
+              <button class="btn btn-ok" @click.stop="confirmEvent(ev.id)" :disabled="actionLoading">確認</button>
+              <input
+                v-model="dismissReason"
+                class="dismiss-input"
+                placeholder="却下理由..."
+                @click.stop
+              />
+              <button class="btn btn-ng" @click.stop="dismissEvent(ev.id)" :disabled="actionLoading">却下</button>
             </div>
           </template>
         </div>
@@ -181,4 +222,5 @@ function selectEvent(ev: GraphRiskEvent) { store.selectRiskEvent(ev); }
 .btn { padding: var(--space-1) var(--space-3); border: none; border-radius: var(--radius-sm); font-size: var(--text-xs); font-weight: 700; cursor: pointer; }
 .btn-ok { background: var(--color-success-600); color: #fff; }
 .btn-ng { background: var(--color-danger-600); color: #fff; }
+.dismiss-input { flex: 1; padding: var(--space-1) var(--space-2); border: 1px solid var(--color-gray-200); border-radius: var(--radius-sm); font-size: var(--text-xs); }
 </style>

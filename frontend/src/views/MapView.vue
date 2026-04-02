@@ -25,6 +25,7 @@ const riskPanelRef = ref<InstanceType<typeof RiskPanel> | null>(null);
 const showSidebar = ref(true);
 const isFullscreen = ref(false);
 const nlHighlightIds = ref<Set<string>>(new Set());
+let pendingTabFilter: Record<string, unknown> | null = null;
 
 const badgeText = computed<string>(() => {
   const count = notificationStore.attentionCount;
@@ -155,6 +156,14 @@ function handleNlClear() {
   mapRef.value?.selectAllCustomers();
 }
 
+function handleFocusEvent(ev: { latitude: number; longitude: number }) {
+  mapRef.value?.focusLatLon(ev.latitude, ev.longitude);
+}
+
+function handleFocusImpactNode(nodeId: string) {
+  mapRef.value?.focusNode(nodeId);
+}
+
 onMounted(async () => {
   await store.loadAllData();
   notificationStore.loadCounts();
@@ -165,7 +174,10 @@ onMounted(async () => {
   <div class="map-page">
     <KpiStrip
       @open-tab="(tab: string) => riskPanelRef?.openTab(tab)"
-      @open-tab-filter="(tab: string) => riskPanelRef?.openTab(tab)"
+      @open-tab-filter="(tab: string, filter: Record<string, unknown>) => {
+        riskPanelRef?.openTab(tab);
+        pendingTabFilter = filter;
+      }"
     />
     <main class="workspace-grid">
       <aside class="workspace-sidebar" :class="{ hidden: !showSidebar }">
@@ -289,10 +301,10 @@ onMounted(async () => {
 
       <RiskPanel ref="riskPanelRef">
         <template #events>
-          <RiskEventTab />
+          <RiskEventTab @focus-event="handleFocusEvent" />
         </template>
         <template #impacts>
-          <ActiveImpactTab />
+          <ActiveImpactTab @focus-node="handleFocusImpactNode" />
         </template>
         <template #corridors>
           <CorridorTab />

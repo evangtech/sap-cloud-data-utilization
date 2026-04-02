@@ -10,6 +10,10 @@ import type { NodeImpact } from '@/types';
 
 const store = useSupplyChainStore();
 
+const emit = defineEmits<{
+  (e: 'focus-node', nodeId: string): void;
+}>();
+
 interface ImpactedNode {
   nodeId: string;
   nodeName: string;
@@ -81,7 +85,11 @@ async function showHistory(nodeId: string) {
     <div
       v-for="node in impactedNodes" :key="node.nodeId"
       class="impact-row" :class="{ selected: selectedNodeId === node.nodeId }"
-      @click="selectedNodeId = selectedNodeId === node.nodeId ? null : node.nodeId"
+      @click="() => {
+        const wasSelected = selectedNodeId === node.nodeId;
+        selectedNodeId = wasSelected ? null : node.nodeId;
+        if (!wasSelected) emit('focus-node', node.nodeId);
+      }"
     >
       <div class="row-head">
         <span class="node-icon">{{ typeIcons[node.nodeType] || '📍' }}</span>

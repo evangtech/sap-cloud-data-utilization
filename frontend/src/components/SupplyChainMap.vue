@@ -678,6 +678,8 @@ function renderSupplyLines() {
       tooltipContent += `<br><span style="font-size:11px;color:#6b7280;">製品: ${productNames}</span>`;
     }
     polyline.bindTooltip(tooltipContent, { sticky: true });
+    // ルート分析ハイライト用のメタデータを付与
+    (polyline as any)._riskLineData = { fromId: line.fromId, toId: line.toId };
     polyline.addTo(map!);
     supplyLines.value.push(polyline);
   });
@@ -843,6 +845,13 @@ function highlightCorridorPath(pathNodeIds: string[]) {
   if (!map) return;
   const pathSet = new Set(pathNodeIds);
 
+  // パス上のエッジペアを構築（隣接ノードペア）
+  const pathEdges = new Set<string>();
+  for (let i = 0; i < pathNodeIds.length - 1; i++) {
+    pathEdges.add(`${pathNodeIds[i]}::${pathNodeIds[i + 1]}`);
+  }
+
+  // ノード: パス上は通常表示、パス外は薄暗く
   markers.value.forEach((marker, id) => {
     const inPath = pathSet.has(id);
     if (marker instanceof L.CircleMarker) {
@@ -852,8 +861,20 @@ function highlightCorridorPath(pathNodeIds: string[]) {
     }
   });
 
+  // エッジ: パス上は太い青線で強調、パス外は薄暗く
   supplyLines.value.forEach((line) => {
-    line.setStyle({ opacity: 0.15 });
+    const lineData = (line as any)._riskLineData as { fromId: string; toId: string } | undefined;
+    if (!lineData) {
+      line.setStyle({ opacity: 0.1 });
+      return;
+    }
+    const edgeKey = `${lineData.fromId}::${lineData.toId}`;
+    const isOnPath = pathEdges.has(edgeKey);
+    if (isOnPath) {
+      line.setStyle({ color: '#3b82f6', weight: 4, opacity: 1 });
+    } else {
+      line.setStyle({ opacity: 0.1 });
+    }
   });
 }
 
