@@ -11,6 +11,10 @@ import MapLegend from '@/components/MapLegend.vue';
 import KpiStrip from '@/components/KpiStrip.vue';
 import MapControls from '@/components/MapControls.vue';
 import RiskPanel from '@/components/RiskPanel.vue';
+import RiskEventTab from '@/components/RiskEventTab.vue';
+import ActiveImpactTab from '@/components/ActiveImpactTab.vue';
+import CorridorTab from '@/components/CorridorTab.vue';
+import RecoveryTab from '@/components/RecoveryTab.vue';
 import type { Plant } from '@/types';
 import type { NlQueryResult } from '@/services/api';
 
@@ -285,16 +289,16 @@ onMounted(async () => {
 
       <RiskPanel ref="riskPanelRef">
         <template #events>
-          <div class="tab-placeholder">リスクイベント（Section 4で実装）</div>
+          <RiskEventTab />
         </template>
         <template #impacts>
-          <div class="tab-placeholder">アクティブインパクト（Section 4で実装）</div>
+          <ActiveImpactTab />
         </template>
         <template #corridors>
-          <div class="tab-placeholder">ルート分析（Section 4で実装）</div>
+          <CorridorTab />
         </template>
         <template #recovery>
-          <div class="tab-placeholder">復旧状況（Section 4で実装）</div>
+          <RecoveryTab />
         </template>
       </RiskPanel>
     </main>
