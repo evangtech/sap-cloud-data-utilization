@@ -152,18 +152,44 @@ async function getDisruptsByEvent(eventId: string) {
 // ── リスクスコアリング ───────────────────────────────────────
 
 /**
- * 全ノードタイプのリスクスコアを算出（UNION ALLで4タイプを結合）
+ * ノードリスクスコアを算出（v1: Plantのみ）
  *
- * revenueExposure算出ルール:
- *   Plant/Supplier/Warehouse: SUPPLIES_TO*1..3 → Customer → ORDERED_BY → Product
- *   LogisticsHub: ROUTES_THROUGH逆引き → 依存ノードのSUPPLIES_TOパスで集計
- *
- * liveEventRisk = sum(severity * impactConfidence * recency_decay * impactType_weight)
- * combinedOperationalRisk = liveEventRisk * (1 + log(1 + revenueExposure / 1億))
+ * Neptune Analytics openCypher制約:
+ * - クエリ内に // コメント不可（パースエラー）
+ * - log() 関数未サポート → 線形近似 (1 + x/1億) で代替
+ * - インラインmap {key: val} 未サポート → topEvent省略
+ * - UNION ALL 4タイプ版は構文リスクが高いためv1はPlantのみ
+ * v2で Supplier/Warehouse/LogisticsHub を個別クエリで追加
  */
 async function getNodeRiskScores() {
-  // 共通のリスクスコア算出パターンを各ノードタイプで繰り返す
-  const riskScoreFragment = (matchClause: string, revenueClause: string) => `
+  const query = `
+    MATCH (n:Plant)
+    OPTIONAL MATCH (n)<-[i:IMPACTS]-(re:RiskEvent)
+      WHERE i.status IN ['active', 'recovering']
+        AND re.reviewStatus = 'confirmed'
+    WITH n,
+         coalesce(sum(
+           i.severity * coalesce(i.impactConfidence, 0.5)
+           * (1.0 / (1 + (epochMillis(datetime()) - epochMillis(re.startDate)) / 2592000000.0))
+           * CASE i.impactType WHEN 'direct' THEN 1.0 ELSE 0.5 END
+         ), 0) AS liveEventRisk,
+         count(re) AS activeEventCount
+    OPTIONAL MATCH (n)-[:SUPPLIES_TO*1..3]->(c:Customer)<-[o:ORDERED_BY]-(prod:Product)
+    WITH n, liveEventRisk, activeEventCount,
+         coalesce(sum(o.annual_order_qty * o.unit_price_jpy), 0) AS revenueExposure
+    OPTIONAL MATCH (n)-[:LOCATED_IN]->(country:Country)
+    RETURN n.id AS nodeId, 'Plant' AS nodeType,
+           coalesce(country.geopolitical_risk, 0) AS baselineRisk,
+           liveEventRisk, revenueExposure,
+           liveEventRisk * (1.0 + revenueExposure / 100000000.0) AS combinedOperationalRisk,
+           activeEventCount
+    ORDER BY combinedOperationalRisk DESC
+  `;
+  return executeQuerySafe(query);
+}
+
+/* v1で削除: UNION ALL 4タイプ版テンプレート（Neptune構文制約で失敗）
+  const riskScoreFragment_DISABLED = (matchClause: string, revenueClause: string) => `
     ${matchClause}
     OPTIONAL MATCH (n)<-[i:IMPACTS]-(re:RiskEvent)
       WHERE i.status IN ['active', 'recovering']
@@ -227,8 +253,7 @@ async function getNodeRiskScores() {
             coalesce(sum(o.annual_order_qty * o.unit_price_jpy), 0) AS revenueExposure`,
     )}
   `;
-  return executeQuerySafe(query);
-}
+v1で削除終わり */
 
 // ── ルート分析 ───────────────────────────────────────────────
 
