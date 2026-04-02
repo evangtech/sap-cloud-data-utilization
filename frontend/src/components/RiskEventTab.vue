@@ -11,12 +11,22 @@ import type { GraphRiskEvent, EventImpact } from '@/types';
 
 const store = useSupplyChainStore();
 
+const props = defineProps<{
+  initialReviewFilter?: string;
+}>();
+
 const emit = defineEmits<{
   (e: 'focus-event', ev: { latitude: number; longitude: number }): void;
 }>();
 
 const eventTypeFilter = ref('');
+const reviewFilter = ref(props.initialReviewFilter || '');
 const includeResolved = ref(false);
+
+// 外部からレビューフィルタが渡された場合に適用
+watch(() => props.initialReviewFilter, (val) => {
+  if (val) reviewFilter.value = val;
+});
 const resolvedEvents = ref<GraphRiskEvent[]>([]);
 const expandedEventId = ref<string | null>(null);
 const expandedImpacts = ref<EventImpact[]>([]);
@@ -27,6 +37,7 @@ const displayedEvents = computed(() => {
   let events = [...store.riskEvents];
   if (includeResolved.value) events = [...events, ...resolvedEvents.value];
   if (eventTypeFilter.value) events = events.filter(e => e.eventType === eventTypeFilter.value);
+  if (reviewFilter.value) events = events.filter(e => e.reviewStatus === reviewFilter.value);
   return events;
 });
 
@@ -123,6 +134,13 @@ async function dismissEvent(eventId: string) {
         <option value="port_closure">港湾閉鎖</option>
         <option value="trade_restriction">貿易規制</option>
         <option value="pandemic">パンデミック</option>
+      </select>
+      <select v-model="reviewFilter" class="filter-select">
+        <option value="">全ステータス</option>
+        <option value="pending">確認待ち</option>
+        <option value="confirmed">確認済み</option>
+        <option value="watching">監視中</option>
+        <option value="dismissed">却下</option>
       </select>
       <label class="filter-check">
         <input type="checkbox" v-model="includeResolved" /> 解決済み

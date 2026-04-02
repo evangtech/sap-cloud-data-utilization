@@ -165,7 +165,7 @@ function handleFocusImpactNode(nodeId: string) {
 }
 
 onMounted(async () => {
-  await store.loadAllData();
+  await store.ensureAllDataLoaded();
   notificationStore.loadCounts();
 });
 </script>
@@ -301,7 +301,10 @@ onMounted(async () => {
 
       <RiskPanel ref="riskPanelRef">
         <template #events>
-          <RiskEventTab @focus-event="handleFocusEvent" />
+          <RiskEventTab
+            :initial-review-filter="pendingTabFilter.reviewStatus as string ?? ''"
+            @focus-event="handleFocusEvent"
+          />
         </template>
         <template #impacts>
           <ActiveImpactTab @focus-node="handleFocusImpactNode" />
