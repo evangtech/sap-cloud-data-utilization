@@ -21,7 +21,7 @@ function selectCorridor(index: number) {
   }
   selectedIndex.value = index;
   const c = store.corridorRisks[index];
-  store.highlightCorridor(c.origin.id, c.destination.id);
+  if (c) store.highlightCorridor(c.origin.id, c.destination.id);
 }
 
 function fmt(val: number) { return val.toFixed(2); }
@@ -52,7 +52,7 @@ function fmt(val: number) { return val.toFixed(2); }
 
     <div v-if="selectedIndex !== null && store.corridorRisks[selectedIndex]" class="detail">
       <div class="detail-label">危険ノード</div>
-      <div v-for="n in store.corridorRisks[selectedIndex].riskyNodes" :key="n.name" class="risky-node">
+      <div v-for="n in store.corridorRisks[selectedIndex]!.riskyNodes" :key="n.name" class="risky-node">
         <span>{{ n.name }}</span>
         <span class="mono">risk: {{ n.risk.toFixed(2) }}</span>
       </div>

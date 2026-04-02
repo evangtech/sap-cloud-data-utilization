@@ -25,7 +25,7 @@ const riskPanelRef = ref<InstanceType<typeof RiskPanel> | null>(null);
 const showSidebar = ref(true);
 const isFullscreen = ref(false);
 const nlHighlightIds = ref<Set<string>>(new Set());
-let pendingTabFilter: Record<string, unknown> | null = null;
+const pendingTabFilter = ref<Record<string, unknown>>({});
 
 const badgeText = computed<string>(() => {
   const count = notificationStore.attentionCount;
@@ -176,12 +176,12 @@ onMounted(async () => {
       @open-tab="(tab: string) => riskPanelRef?.openTab(tab)"
       @open-tab-filter="(tab: string, filter: Record<string, unknown>) => {
         riskPanelRef?.openTab(tab);
-        pendingTabFilter = filter;
+        pendingTabFilter.value = filter;
       }"
     />
     <main class="workspace-grid">
       <aside class="workspace-sidebar" :class="{ hidden: !showSidebar }">
-        <MapControls @nl-result="handleNlResult" @nl-clear="handleNlClear" />
+        <MapControls @nl-result="(r: any) => handleNlResult(r)" @nl-clear="handleNlClear" />
         <section class="rail-card rail-card-summary">
           <div class="rail-heading">運用概要</div>
           <div class="rail-subtitle">供給ネットワークの現在値</div>
