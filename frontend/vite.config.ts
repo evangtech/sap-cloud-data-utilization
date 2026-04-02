@@ -17,7 +17,7 @@ export default defineConfig({
   },
   server: {
     watch: {
-      ignored: ['**/amplify_outputs.json', '**/amplify/**'],
+      ignored: ['**/amplify/**'],
     },
   },
 })

@@ -159,6 +159,12 @@ async function getDisruptsByEvent(eventId: string) {
  * - log() 関数未サポート → 線形近似 (1 + x/1億) で代替
  * - インラインmap {key: val} 未サポート → topEvent省略
  * - UNION ALL 4タイプ版は構文リスクが高いためv1はPlantのみ
+ *
+ * スコア構成:
+ * - impactRisk: active/recovering の IMPACTS から算出
+ * - disruptRisk: active/recovering の DISRUPTS を
+ *   Plant <- Product <- Material <- HSCode の経路で加算
+ * - liveEventRisk = impactRisk + disruptRisk
  * v2で Supplier/Warehouse/LogisticsHub を個別クエリで追加
  */
 async function getNodeRiskScores() {
@@ -172,14 +178,38 @@ async function getNodeRiskScores() {
            i.severity * coalesce(i.impactConfidence, 0.5)
            * (1.0 / (1 + (epochMillis(datetime()) - epochMillis(re.startDate)) / 2592000000.0))
            * CASE i.impactType WHEN 'direct' THEN 1.0 ELSE 0.5 END
-         ), 0) AS liveEventRisk,
-         count(re) AS activeEventCount
+         ), 0.0) AS impactRisk,
+         count(DISTINCT re) AS impactEventCount
+    OPTIONAL MATCH (n)<-[:PRODUCED_AT]-(prod:Product)-[:HAS_COMPONENT]->(m:Material)-[:CLASSIFIED_AS]->(hs:HSCode)<-[d:DISRUPTS]-(dre:RiskEvent)
+      WHERE dre.lifecycleStatus IN ['active', 'recovering']
+        AND dre.reviewStatus = 'confirmed'
+    WITH n, impactRisk, impactEventCount, dre, hs,
+         max(coalesce(d.tariffIncreasePct, 0.0)) AS maxTariffIncreasePct,
+         max(CASE WHEN coalesce(d.exportRestricted, false) THEN 1.0 ELSE 0.0 END) AS exportRestrictedFlag
+    WITH n, impactRisk, impactEventCount,
+         coalesce(sum(
+           CASE WHEN dre IS NOT NULL THEN
+             dre.severity
+             * (1.0 / (1 + (epochMillis(datetime()) - epochMillis(dre.startDate)) / 2592000000.0))
+             * CASE
+                 WHEN exportRestrictedFlag >= 1.0 THEN 1.5
+                 ELSE 1.0 + maxTariffIncreasePct / 100.0
+               END
+           ELSE 0.0
+           END
+         ), 0.0) AS disruptRisk,
+         count(DISTINCT dre) AS disruptEventCount
     OPTIONAL MATCH (n)-[:SUPPLIES_TO*1..3]->(c:Customer)<-[o:ORDERED_BY]-(prod:Product)
-    WITH n, liveEventRisk, activeEventCount,
-         coalesce(sum(o.annual_order_qty * o.unit_price_jpy), 0) AS revenueExposure
+    WITH n, impactRisk, disruptRisk, impactEventCount, disruptEventCount,
+         coalesce(sum(o.annual_order_qty * o.unit_price_jpy), 0.0) AS revenueExposure
     OPTIONAL MATCH (n)-[:LOCATED_IN]->(country:Country)
+    WITH n,
+         coalesce(country.geopolitical_risk, 0) AS baselineRisk,
+         impactRisk + disruptRisk AS liveEventRisk,
+         revenueExposure,
+         impactEventCount + disruptEventCount AS activeEventCount
     RETURN n.id AS nodeId, 'Plant' AS nodeType,
-           coalesce(country.geopolitical_risk, 0) AS baselineRisk,
+           baselineRisk,
            liveEventRisk, revenueExposure,
            liveEventRisk * (1.0 + revenueExposure / 100000000.0) AS combinedOperationalRisk,
            activeEventCount
