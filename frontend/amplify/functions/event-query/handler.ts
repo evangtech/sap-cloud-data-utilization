@@ -38,8 +38,9 @@ function clampLimit(limit?: number): number {
 }
 
 /**
- * ステータス別にイベントを取得（GSI1）
- * GSI1PK = STATUS#{status}、GSI1SK = created_at（降順）
+ * ステータス別にイベントを取得
+ * 現行テーブルでは gsi1-status-index を使用し、
+ * status を HASH、created_at を RANGE として参照する
  */
 async function getEventsByStatus(
   status: string,
@@ -52,9 +53,14 @@ async function getEventsByStatus(
 
   const params: any = {
     TableName: TABLE_NAME,
-    IndexName: 'GSI1',
-    KeyConditionExpression: 'GSI1PK = :pk',
-    ExpressionAttributeValues: { ':pk': `STATUS#${status}` },
+    IndexName: 'gsi1-status-index',
+    KeyConditionExpression: '#status = :status',
+    ExpressionAttributeNames: {
+      '#status': 'status',
+    },
+    ExpressionAttributeValues: {
+      ':status': status,
+    },
     ScanIndexForward: false,
     Limit: clampLimit(limit),
   };
@@ -76,8 +82,9 @@ async function getEventsByStatus(
 }
 
 /**
- * カテゴリ別にイベントを取得（GSI2）
- * GSI2PK = CAT#{categoryId}、GSI2SK = created_at（降順）
+ * カテゴリ別にイベントを取得
+ * 現行テーブルでは gsi2-category-index を使用し、
+ * category_id を HASH、created_at を RANGE として参照する
  */
 async function getEventsByCategory(
   categoryId: string,
@@ -86,9 +93,14 @@ async function getEventsByCategory(
 ) {
   const params: any = {
     TableName: TABLE_NAME,
-    IndexName: 'GSI2',
-    KeyConditionExpression: 'GSI2PK = :pk',
-    ExpressionAttributeValues: { ':pk': `CAT#${categoryId}` },
+    IndexName: 'gsi2-category-index',
+    KeyConditionExpression: '#category_id = :category_id',
+    ExpressionAttributeNames: {
+      '#category_id': 'category_id',
+    },
+    ExpressionAttributeValues: {
+      ':category_id': categoryId,
+    },
     ScanIndexForward: false,
     Limit: clampLimit(limit),
   };
@@ -110,14 +122,13 @@ async function getEventsByCategory(
 }
 
 /**
- * イベントIDで単一イベントを取得
- * PK = EVT#{eventId}、SK = META
+ * event_id で単一イベントを取得
  */
 async function getEventById(eventId: string) {
   const result = await docClient.send(
     new GetCommand({
       TableName: TABLE_NAME,
-      Key: { PK: `EVT#${eventId}`, SK: 'META' },
+      Key: { event_id: eventId },
     }),
   );
 
@@ -130,7 +141,8 @@ async function getEventById(eventId: string) {
 
 /**
  * イベントのステータスを更新
- * status、GSI1PK、reviewed_by、updated_at を同時に更新
+ * 現行テーブルでは status 自体が GSI のキー属性なので、
+ * 追加の GSI 補助列は不要
  */
 async function updateEventStatus(
   eventId: string,
@@ -146,22 +158,20 @@ async function updateEventStatus(
   const result = await docClient.send(
     new UpdateCommand({
       TableName: TABLE_NAME,
-      Key: { PK: `EVT#${eventId}`, SK: 'META' },
+      Key: { event_id: eventId },
       UpdateExpression:
-        'SET #status = :status, #gsi1pk = :gsi1pk, #reviewed_by = :reviewed_by, #updated_at = :updated_at',
+        'SET #status = :status, #reviewed_by = :reviewed_by, #updated_at = :updated_at',
       ExpressionAttributeNames: {
         '#status': 'status',
-        '#gsi1pk': 'GSI1PK',
         '#reviewed_by': 'reviewed_by',
         '#updated_at': 'updated_at',
       },
       ExpressionAttributeValues: {
         ':status': status,
-        ':gsi1pk': `STATUS#${status}`,
         ':reviewed_by': reviewedBy,
         ':updated_at': now,
       },
-      ConditionExpression: 'attribute_exists(PK)',
+      ConditionExpression: 'attribute_exists(event_id)',
       ReturnValues: 'ALL_NEW',
     }),
   );
@@ -170,17 +180,22 @@ async function updateEventStatus(
 }
 
 /**
- * CONFIRMED と PENDING のイベント件数を取得
- * GSI1 に対して Select=COUNT でクエリ
+ * 各ステータスのイベント件数を取得
+ * gsi1-status-index に対して Select=COUNT でクエリする
  */
 async function getEventCounts() {
   const countQuery = async (status: string): Promise<number> => {
     const result = await docClient.send(
       new QueryCommand({
         TableName: TABLE_NAME,
-        IndexName: 'GSI1',
-        KeyConditionExpression: 'GSI1PK = :pk',
-        ExpressionAttributeValues: { ':pk': `STATUS#${status}` },
+        IndexName: 'gsi1-status-index',
+        KeyConditionExpression: '#status = :status',
+        ExpressionAttributeNames: {
+          '#status': 'status',
+        },
+        ExpressionAttributeValues: {
+          ':status': status,
+        },
         Select: 'COUNT',
       }),
     );

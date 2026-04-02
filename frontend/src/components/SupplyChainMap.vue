@@ -96,8 +96,16 @@ function initMap() {
   map = L.map(mapContainer.value, {
     center: [36.2048, 138.2529],
     zoom: 6,
-    minZoom: 5,
+    minZoom: 2,
     maxZoom: 18,
+    // 太平洋をまたぐ移動時に同一ワールドへジャンプし、
+    // ノードが存在しない複製ワールドへ流れ続けるのを防ぐ
+    worldCopyJump: true,
+    maxBounds: L.latLngBounds(
+      L.latLng(-85, -220),
+      L.latLng(85, 220),
+    ),
+    maxBoundsViscosity: 1.0,
   });
 
   // OpenStreetMap標準タイル

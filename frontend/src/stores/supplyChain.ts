@@ -103,6 +103,8 @@ export const useSupplyChainStore = defineStore('supplyChain', () => {
   const corridorLoading = ref(false);
   const recoveryLoading = ref(false);
   const highlightedCorridorPath = ref<string[]>([]);
+  const hasLoadedCoreData = ref(false);
+  let loadAllDataPromise: Promise<void> | null = null;
 
   // ========================================
   // Computed - Dashboard Stats
@@ -445,6 +447,7 @@ export const useSupplyChainStore = defineStore('supplyChain', () => {
       activeImpactsByEvent.value = byEvent;
       activeDisrupts.value = activeDisruptsData;
       riskScores.value = scoresMap;
+      hasLoadedCoreData.value = true;
 
       console.log('データ読み込み完了:', {
         plants: plantsData.length,
@@ -458,10 +461,31 @@ export const useSupplyChainStore = defineStore('supplyChain', () => {
         logisticsHubs: logisticsHubsData.length,
       });
     } catch (e) {
+      hasLoadedCoreData.value = false;
       error.value = e instanceof Error ? e.message : 'データの読み込みに失敗しました';
       console.error('データ読み込みエラー:', e);
     } finally {
       isLoading.value = false;
+    }
+  }
+
+  /**
+   * コアデータを必要時のみ初期化する
+   * ルート直打ち時に MapView 以外でも同じデータを参照できるようにする
+   */
+  async function ensureAllDataLoaded(force = false) {
+    if (!force && hasLoadedCoreData.value) return;
+    if (!force && loadAllDataPromise) return loadAllDataPromise;
+
+    const promise = loadAllData();
+    loadAllDataPromise = promise;
+
+    try {
+      await promise;
+    } finally {
+      if (loadAllDataPromise === promise) {
+        loadAllDataPromise = null;
+      }
     }
   }
 
@@ -754,6 +778,8 @@ export const useSupplyChainStore = defineStore('supplyChain', () => {
     toggleLogisticsHubs,
     selectRiskEvent,
     buildCurrentRiskScenario,
+    ensureAllDataLoaded,
+    hasLoadedCoreData,
     loadCorridorRisks,
     loadRecoveryDashboard,
     refreshRiskScores,

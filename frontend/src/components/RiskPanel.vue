@@ -15,7 +15,7 @@ const DEFAULT_WIDTH = 400;
 
 const isExpanded = ref(true);
 const panelWidth = ref(DEFAULT_WIDTH);
-const activeTab = ref<'events' | 'impacts' | 'corridors' | 'recovery'>('events');
+const activeTab = ref<'events' | 'impacts' | 'corridors' | 'recovery' | 'nodes'>('events');
 const isResizing = ref(false);
 
 const emit = defineEmits<{
@@ -77,6 +77,7 @@ const tabs = [
   { id: 'impacts' as const, label: 'インパクト', icon: '🎯' },
   { id: 'corridors' as const, label: 'ルート', icon: '🛤️' },
   { id: 'recovery' as const, label: '復旧', icon: '🔄' },
+  { id: 'nodes' as const, label: 'ノード', icon: '📍' },
 ];
 </script>
 
@@ -182,11 +183,20 @@ const tabs = [
   padding: 0 var(--space-1);
   height: 40px;
   flex-shrink: 0;
+  min-width: 0;
 }
 .tab-row {
   display: flex;
   flex: 1;
   gap: 0;
+  min-width: 0;
+  overflow-x: auto;
+  overflow-y: hidden;
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+.tab-row::-webkit-scrollbar {
+  display: none;
 }
 .tab-btn {
   display: flex;
@@ -201,6 +211,7 @@ const tabs = [
   border-bottom: 2px solid transparent;
   transition: all var(--transition-fast);
   white-space: nowrap;
+  flex: 0 0 auto;
 }
 .tab-btn:hover { color: var(--color-primary-600); }
 .tab-btn.active {

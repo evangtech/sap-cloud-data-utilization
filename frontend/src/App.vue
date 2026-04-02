@@ -1,8 +1,10 @@
 <script setup lang="ts">
 import { RouterView, RouterLink, useRoute } from 'vue-router';
-import { computed, ref } from 'vue';
+import { computed, ref, onMounted, watch } from 'vue';
+import { useSupplyChainStore } from '@/stores/supplyChain';
 
 const route = useRoute();
+const supplyChainStore = useSupplyChainStore();
 const sidebarCollapsed = ref(false);
 
 const useOwnLayout = computed(() => route.meta?.useOwnLayout === true);
@@ -102,6 +104,37 @@ const currentPageMeta = computed<ShellPageMeta>(() => {
 function isActive(routeName: string): boolean {
   return route.name === routeName;
 }
+
+/**
+ * 共有データが必要な画面では、MapView 以外から開いても
+ * 先にストアのコアデータを初期化する
+ */
+function routeNeedsSupplyChainData(routeName: string): boolean {
+  return [
+    'map',
+    'risk-events',
+    'risk-dashboard',
+    'corridor-analysis',
+    'simulation',
+    'node-detail',
+  ].includes(routeName);
+}
+
+async function ensureRouteData(routeName: string) {
+  if (!routeNeedsSupplyChainData(routeName)) return;
+  await supplyChainStore.ensureAllDataLoaded();
+}
+
+onMounted(() => {
+  void ensureRouteData(String(route.name ?? ''));
+});
+
+watch(
+  () => route.name,
+  (name) => {
+    void ensureRouteData(String(name ?? ''));
+  },
+);
 </script>
 
 <template>

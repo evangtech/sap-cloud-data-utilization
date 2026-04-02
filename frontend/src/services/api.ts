@@ -1026,7 +1026,9 @@ export async function fetchCorridorRisks(): Promise<CorridorRisk[]> {
   try {
     const { data, errors } = await c.queries.getCorridorRisks();
     if (errors) console.error('ルートリスク取得エラー:', errors);
-    return (data ?? []).map((r: any) => ({
+    return (data ?? []).map((raw: any) => {
+      const r = typeof raw === 'string' ? JSON.parse(raw) : raw;
+      return {
       origin: {
         id: r?.originId || '',
         name: r?.originName || '',
@@ -1041,7 +1043,8 @@ export async function fetchCorridorRisks(): Promise<CorridorRisk[]> {
       avgRouteRisk: r?.avgRouteRisk || 0,
       hops: r?.hops || 0,
       riskyNodes: r?.riskyNodes || [],
-    }));
+      };
+    });
   } catch (error) {
     console.error('ルートリスク取得エラー:', error);
     return [];

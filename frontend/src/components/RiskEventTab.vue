@@ -5,9 +5,14 @@
  */
 import { ref, computed, watch } from 'vue';
 import { useSupplyChainStore } from '@/stores/supplyChain';
-import { fetchRiskEvents, fetchImpactsByEvent, fetchRiskEventChain } from '@/services/api';
+import {
+  fetchRiskEvents,
+  fetchImpactsByEvent,
+  fetchRiskEventChain,
+  fetchDisruptsByEvent,
+} from '@/services/api';
 import { updateEventStatus } from '@/services/notificationApi';
-import type { GraphRiskEvent, EventImpact } from '@/types';
+import type { GraphRiskEvent, EventImpact, DisruptsEdge } from '@/types';
 
 const store = useSupplyChainStore();
 
@@ -30,6 +35,7 @@ watch(() => props.initialReviewFilter, (val) => {
 const resolvedEvents = ref<GraphRiskEvent[]>([]);
 const expandedEventId = ref<string | null>(null);
 const expandedImpacts = ref<EventImpact[]>([]);
+const expandedDisrupts = ref<DisruptsEdge[]>([]);
 const expandedChain = ref<unknown[]>([]);
 const expandLoading = ref(false);
 
@@ -51,12 +57,17 @@ async function toggleExpand(eventId: string) {
   if (expandedEventId.value === eventId) { expandedEventId.value = null; return; }
   expandedEventId.value = eventId;
   expandLoading.value = true;
+  expandedImpacts.value = [];
+  expandedDisrupts.value = [];
+  expandedChain.value = [];
   try {
-    const [impacts, chain] = await Promise.all([
+    const [impacts, disrupts, chain] = await Promise.all([
       fetchImpactsByEvent(eventId),
+      fetchDisruptsByEvent(eventId),
       fetchRiskEventChain(eventId),
     ]);
     expandedImpacts.value = impacts;
+    expandedDisrupts.value = disrupts;
     expandedChain.value = chain;
   } finally { expandLoading.value = false; }
 }
@@ -184,11 +195,31 @@ async function dismissEvent(eventId: string) {
                 <span class="imp-amount mono">{{ formatJpy(imp.cachedImpactAmount) }}</span>
               </div>
             </div>
+            <div v-if="expandedDisrupts.length" class="exp-section">
+              <div class="exp-label">貿易・規制影響</div>
+              <div v-for="(disrupt, idx) in expandedDisrupts" :key="`${disrupt.eventId}-${disrupt.hsCode}-${idx}`" class="impact-row">
+                <span class="imp-type direct">DISRUPTS</span>
+                <span class="imp-name">
+                  HS {{ disrupt.hsCode }}
+                  <template v-if="disrupt.exportRestricted"> / 輸出制限</template>
+                  <template v-else-if="disrupt.tariffIncreasePct"> / 関税 +{{ disrupt.tariffIncreasePct }}%</template>
+                </span>
+                <span class="imp-amount mono">
+                  {{ disrupt.exportRestricted ? 'restricted' : `+${disrupt.tariffIncreasePct ?? 0}%` }}
+                </span>
+              </div>
+            </div>
             <div v-if="expandedChain.length" class="exp-section">
               <div class="exp-label">関連イベント</div>
               <div v-for="(c, i) in expandedChain" :key="i" class="chain-row">
                 {{ (c as any).resultingEvent }}
               </div>
+            </div>
+            <div
+              v-if="!expandedImpacts.length && !expandedDisrupts.length && !expandedChain.length"
+              class="empty-detail"
+            >
+              詳細データはありません
             </div>
             <div v-if="ev.reviewStatus === 'pending'" class="actions">
               <button class="btn btn-ok" @click.stop="confirmEvent(ev.id)" :disabled="actionLoading">確認</button>
@@ -209,9 +240,37 @@ async function dismissEvent(eventId: string) {
 
 <style scoped>
 .event-tab { display: flex; flex-direction: column; height: 100%; }
-.filter-bar { display: flex; gap: var(--space-2); padding: var(--space-2) var(--space-3); border-bottom: 1px solid var(--color-gray-200); flex-shrink: 0; }
-.filter-select { padding: var(--space-1) var(--space-2); border: 1px solid var(--color-gray-200); border-radius: var(--radius-sm); font-size: var(--text-xs); background: #fff; }
-.filter-check { display: flex; align-items: center; gap: 4px; font-size: var(--text-xs); cursor: pointer; }
+.filter-bar {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-3);
+  border-bottom: 1px solid var(--color-gray-200);
+  flex-shrink: 0;
+  flex-wrap: nowrap;
+  overflow-x: auto;
+  overflow-y: hidden;
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+.filter-bar::-webkit-scrollbar { display: none; }
+.filter-select {
+  padding: var(--space-1) var(--space-2);
+  border: 1px solid var(--color-gray-200);
+  border-radius: var(--radius-sm);
+  font-size: var(--text-xs);
+  background: #fff;
+  flex: 0 0 auto;
+}
+.filter-check {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: var(--text-xs);
+  cursor: pointer;
+  flex: 0 0 auto;
+  white-space: nowrap;
+}
 .event-list { flex: 1; overflow-y: auto; }
 .empty-state { padding: var(--space-8); text-align: center; color: var(--color-gray-700); font-size: var(--text-sm); }
 .event-card { border-bottom: 1px solid var(--color-gray-200); cursor: pointer; transition: background var(--transition-fast); }
@@ -236,6 +295,7 @@ async function dismissEvent(eventId: string) {
 .mono { font-family: var(--font-mono); }
 .chain-row { font-size: var(--text-xs); padding: var(--space-1) 0; }
 .loading { padding: var(--space-4); text-align: center; color: var(--color-gray-700); }
+.empty-detail { padding: var(--space-3) 0; font-size: var(--text-xs); color: var(--color-gray-700); }
 .actions { display: flex; gap: var(--space-2); margin-top: var(--space-3); }
 .btn { padding: var(--space-1) var(--space-3); border: none; border-radius: var(--radius-sm); font-size: var(--text-xs); font-weight: 700; cursor: pointer; }
 .btn-ok { background: var(--color-success-600); color: #fff; }
