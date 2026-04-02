@@ -366,12 +366,12 @@ export interface SupplyRelationProduct {
  */
 export interface SupplyRelation {
   fromId: string;
-  fromType: 'plant' | 'supplier';
+  fromType: 'plant' | 'supplier' | 'warehouse';
   fromName: string;
   fromLat: number;
   fromLon: number;
   toId: string;
-  toType: 'plant' | 'customer';
+  toType: 'plant' | 'customer' | 'warehouse';
   toName: string;
   toLat: number;
   toLon: number;
@@ -446,12 +446,12 @@ export interface MapMarker {
  */
 export interface MapLine {
   fromId: string;
-  fromType: 'plant' | 'supplier';
+  fromType: 'plant' | 'supplier' | 'warehouse';
   fromLat: number;
   fromLon: number;
   fromName: string;
   toId: string;
-  toType: 'plant' | 'customer' | 'supplier';
+  toType: 'plant' | 'customer' | 'supplier' | 'warehouse';
   toLat: number;
   toLon: number;
   toName: string;

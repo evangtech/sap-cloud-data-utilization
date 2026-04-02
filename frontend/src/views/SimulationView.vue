@@ -2,6 +2,7 @@
 import { onMounted, ref, computed } from 'vue';
 import { useRoute } from 'vue-router';
 import { useSimulationStore } from '@/stores/simulation';
+import { useSupplyChainStore } from '@/stores/supplyChain';
 import { Bar } from 'vue-chartjs';
 import {
   Chart as ChartJS,
@@ -17,9 +18,25 @@ ChartJS.register(CategoryScale, LinearScale, BarElement, Title, Tooltip, Legend)
 
 const route = useRoute();
 const store = useSimulationStore();
+const supplyChainStore = useSupplyChainStore();
 
 // ── State ──
 const expandedProductId = ref<string | null>(null);
+const scenarioSource = ref<'manual' | 'risk' | 'mixed'>('manual');
+
+function applyCurrentRiskScenario() {
+  const hadManualEdits = store.disabledSuppliers.size > 0 || store.tariffOverrides.size > 0;
+  const snapshot = supplyChainStore.buildCurrentRiskScenario(store.tariffs);
+
+  for (const supplierId of snapshot.disabledSuppliers) {
+    store.disabledSuppliers.add(supplierId);
+  }
+  for (const [key, rate] of snapshot.tariffOverrides) {
+    store.tariffOverrides.set(key, rate);
+  }
+
+  scenarioSource.value = hadManualEdits ? 'mixed' : 'risk';
+}
 
 // ── Data Loading ──
 onMounted(async () => {
@@ -183,7 +200,15 @@ function onSwitchToggle(doSwitch: boolean) {
         <div class="params-scroll">
           <div class="params-head">
             <h2 class="params-title">パラメータ</h2>
-            <button class="btn btn-ghost btn-xs" @click="store.resetAll()">リセット</button>
+            <span v-if="scenarioSource !== 'manual'" class="scenario-badge" :class="scenarioSource">
+              {{ scenarioSource === 'risk' ? 'リスク連動' : '混合' }}
+            </span>
+            <button class="btn btn-ghost btn-xs" @click="store.resetAll(); scenarioSource = 'manual'">リセット</button>
+          </div>
+          <div class="risk-scenario-section">
+            <button class="btn-apply-risk" @click="applyCurrentRiskScenario">
+              ⚡ 現在のリスク状況を適用
+            </button>
           </div>
 
           <!-- Tariff Sliders -->
@@ -611,6 +636,41 @@ function onSwitchToggle(doSwitch: boolean) {
   font-weight: 700;
   color: #ffffff;
   letter-spacing: 0.08em;
+}
+
+.risk-scenario-section {
+  padding: 8px 20px;
+  border-bottom: 1px solid rgba(255,255,255,0.1);
+}
+.btn-apply-risk {
+  width: 100%;
+  padding: 8px 12px;
+  border: 1px solid rgba(212, 168, 67, 0.4);
+  border-radius: 3px;
+  background: rgba(212, 168, 67, 0.1);
+  color: #d4a843;
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: all 150ms ease;
+}
+.btn-apply-risk:hover {
+  background: rgba(212, 168, 67, 0.2);
+  border-color: rgba(212, 168, 67, 0.6);
+}
+.scenario-badge {
+  font-size: 10px;
+  padding: 2px 6px;
+  border-radius: 3px;
+  font-weight: 700;
+}
+.scenario-badge.risk {
+  background: rgba(212, 168, 67, 0.2);
+  color: #d4a843;
+}
+.scenario-badge.mixed {
+  background: rgba(249, 115, 22, 0.2);
+  color: #f97316;
 }
 
 /* Param Groups */

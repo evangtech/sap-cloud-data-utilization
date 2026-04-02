@@ -55,6 +55,36 @@ const COLORS = {
   edgeToCustomer: '#22c55e',
 };
 
+// ── リスクベース可視化ヘルパー ──────────────────────────────
+
+/**
+ * liveEventRiskからマーカー色を算出（初期閾値、v3で自動キャリブレーション可）
+ */
+function riskColor(liveEventRisk: number, defaultColor: string): string {
+  if (liveEventRisk <= 0) return defaultColor;
+  if (liveEventRisk < 2.0) return '#eab308';   // yellow-500
+  if (liveEventRisk < 4.0) return '#f97316';   // orange-500
+  return '#ef4444';                              // red-500
+}
+
+/**
+ * revenueExposureからマーカー半径を算出（8-16px標準、ハブは12px基準）
+ */
+function riskRadius(revenueExposure: number, isHub: boolean = false): number {
+  const base = isHub ? 12 : 8;
+  const max = isHub ? 18 : 16;
+  return Math.min(base + Math.sqrt((revenueExposure || 0) / 1e8) * 3, max);
+}
+
+/**
+ * 複合リスクバッジSVGパーツ（2+アクティブイベント持ちノードに6px赤ドット）
+ */
+function compoundBadgeSvg(nodeId: string): string {
+  const impacts = store.activeImpactsByNode.get(nodeId);
+  if (!impacts || impacts.length < 2) return '';
+  return '<circle cx="16" cy="4" r="3" fill="#ef4444" stroke="white" stroke-width="1"/>';
+}
+
 const POPUP_FONT = "'Noto Sans JP','BIZ UDGothic',sans-serif";
 const POPUP_LINK_STYLE = "display:block;margin-top:12px;padding:8px 0;text-align:center;font-size:12px;font-weight:700;color:#1b2838;background:#ffffff;border:1px solid #1b2838;border-radius:3px;text-decoration:none;cursor:pointer;";
 const POPUP_LINK_HOVER_IN = "this.style.background='#1b2838';this.style.color='#ffffff'";
@@ -66,8 +96,16 @@ function initMap() {
   map = L.map(mapContainer.value, {
     center: [36.2048, 138.2529],
     zoom: 6,
-    minZoom: 5,
+    minZoom: 2,
     maxZoom: 18,
+    // 太平洋をまたぐ移動時に同一ワールドへジャンプし、
+    // ノードが存在しない複製ワールドへ流れ続けるのを防ぐ
+    worldCopyJump: true,
+    maxBounds: L.latLngBounds(
+      L.latLng(-85, -220),
+      L.latLng(85, 220),
+    ),
+    maxBoundsViscosity: 1.0,
   });
 
   // OpenStreetMap標準タイル
@@ -335,17 +373,20 @@ function renderMarkers() {
   markers.value.forEach((m) => m.remove());
   markers.value.clear();
 
-  // 工場
+  // 工場（リスクスコアベース色・サイズ + 複合リスクバッジ）
   if (store.showPlants) {
     store.plants.forEach((plant) => {
       if (!visiblePlants.value.has(plant.id)) return;
-      
-      const color = plant.impactLevel === 'direct' ? COLORS.plantDirect 
-        : plant.impactLevel === 'downstream' ? COLORS.plantDownstream 
+
+      const score = store.riskScores.get(plant.id);
+      const baseColor = plant.impactLevel === 'direct' ? COLORS.plantDirect
+        : plant.impactLevel === 'downstream' ? COLORS.plantDownstream
         : COLORS.plantNormal;
-      
+      const color = score ? riskColor(score.liveEventRisk, baseColor) : baseColor;
+      const radius = score ? riskRadius(score.revenueExposure) : 10;
+
       const marker = L.circleMarker([plant.latitude, plant.longitude], {
-        radius: 10,
+        radius,
         fillColor: color,
         color: '#fff',
         weight: 2,
@@ -505,6 +546,32 @@ function renderRiskEventCircles() {
     circle.addTo(map!);
     riskEventCircles.value.push(circle);
   }
+
+  // radiusKm=0 または multi_country/country イベント → ピンマーカー
+  const pinEvents = store.riskEvents.filter(
+    (e) => ['active', 'recovering'].includes(e.lifecycleStatus)
+      && e.reviewStatus === 'confirmed'
+      && (e.radiusKm <= 0 || ['multi_country', 'country'].includes(e.geoScopeType)),
+  );
+  const severityColors = ['#fbbf24', '#f59e0b', '#ef4444', '#dc2626', '#991b1b'];
+  for (const ev of pinEvents) {
+    const color = severityColors[Math.min(ev.severity - 1, 4)];
+    const svgPin = `<svg width="24" height="24" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+      <circle cx="12" cy="12" r="10" fill="${color}" stroke="white" stroke-width="2" opacity="0.85"/>
+      <text x="12" y="16" text-anchor="middle" fill="white" font-size="12" font-weight="bold">${ev.severity}</text>
+    </svg>`;
+    const icon = L.divIcon({
+      html: svgPin,
+      className: 'custom-marker-icon',
+      iconSize: [24, 24],
+      iconAnchor: [12, 12],
+    });
+    const marker = L.marker([ev.latitude, ev.longitude], { icon });
+    marker.bindTooltip(`${ev.title} (重大度: ${ev.severity})`, { direction: 'top' });
+    marker.on('click', () => store.selectRiskEvent(ev));
+    marker.addTo(map!);
+    riskEventCircles.value.push(marker as unknown as L.Circle);
+  }
 }
 
 /**
@@ -619,6 +686,8 @@ function renderSupplyLines() {
       tooltipContent += `<br><span style="font-size:11px;color:#6b7280;">製品: ${productNames}</span>`;
     }
     polyline.bindTooltip(tooltipContent, { sticky: true });
+    // ルート分析ハイライト用のメタデータを付与
+    (polyline as any)._riskLineData = { fromId: line.fromId, toId: line.toId };
     polyline.addTo(map!);
     supplyLines.value.push(polyline);
   });
@@ -740,6 +809,96 @@ function focusLatLon(lat: number, lon: number) {
   map.setView([lat, lon], 8, { animate: true });
 }
 
+// ── ROUTES_THROUGH条件レンダリング ──────────────────────────
+const routesThroughLines = ref<L.Polyline[]>([]);
+
+function renderRoutesThrough(filterHubId?: string, filterNodeId?: string) {
+  if (!map) return;
+  routesThroughLines.value.forEach((l) => l.remove());
+  routesThroughLines.value = [];
+
+  for (const route of store.routesThrough) {
+    // フィルタ: 特定ハブまたは特定ノードの接続のみ表示
+    if (filterHubId && route.toId !== filterHubId) continue;
+    if (filterNodeId && route.fromId !== filterNodeId) continue;
+
+    const fromNode = [...store.plants, ...store.suppliers, ...store.warehouses]
+      .find((n) => n.id === route.fromId);
+    const toHub = store.logisticsHubs.find((h) => h.id === route.toId);
+    if (!fromNode || !toHub) continue;
+
+    const isDisrupted = toHub.status === 'disrupted' || toHub.status === 'closed';
+    const line = L.polyline(
+      [[fromNode.latitude, fromNode.longitude], [toHub.latitude, toHub.longitude]],
+      {
+        color: isDisrupted ? '#f97316' : '#94a3b8',
+        weight: 1,
+        dashArray: '4 4',
+        opacity: 0.6,
+      },
+    );
+    line.addTo(map!);
+    routesThroughLines.value.push(line);
+  }
+}
+
+function clearRoutesThrough() {
+  routesThroughLines.value.forEach((l) => l.remove());
+  routesThroughLines.value = [];
+}
+
+// ── ルート分析ハイライト ─────────────────────────────────────
+
+function highlightCorridorPath(pathNodeIds: string[]) {
+  if (!map) return;
+  const pathSet = new Set(pathNodeIds);
+
+  // パス上のエッジペアを構築（隣接ノードペア）
+  const pathEdges = new Set<string>();
+  for (let i = 0; i < pathNodeIds.length - 1; i++) {
+    pathEdges.add(`${pathNodeIds[i]}::${pathNodeIds[i + 1]}`);
+  }
+
+  // ノード: パス上は通常表示、パス外は薄暗く
+  markers.value.forEach((marker, id) => {
+    const inPath = pathSet.has(id);
+    if (marker instanceof L.CircleMarker) {
+      marker.setStyle({ opacity: inPath ? 1 : 0.2, fillOpacity: inPath ? 0.9 : 0.15 });
+    } else {
+      (marker as L.Marker).setOpacity(inPath ? 1 : 0.2);
+    }
+  });
+
+  // エッジ: パス上は太い青線で強調、パス外は薄暗く
+  supplyLines.value.forEach((line) => {
+    const lineData = (line as any)._riskLineData as { fromId: string; toId: string } | undefined;
+    if (!lineData) {
+      line.setStyle({ opacity: 0.1 });
+      return;
+    }
+    const edgeKey = `${lineData.fromId}::${lineData.toId}`;
+    const isOnPath = pathEdges.has(edgeKey);
+    if (isOnPath) {
+      line.setStyle({ color: '#3b82f6', weight: 4, opacity: 1 });
+    } else {
+      line.setStyle({ opacity: 0.1 });
+    }
+  });
+}
+
+function clearCorridorHighlight() {
+  markers.value.forEach((marker) => {
+    if (marker instanceof L.CircleMarker) {
+      marker.setStyle({ opacity: 1, fillOpacity: 0.9 });
+    } else {
+      (marker as L.Marker).setOpacity(1);
+    }
+  });
+  supplyLines.value.forEach((line) => {
+    line.setStyle({ opacity: 0.7 });
+  });
+}
+
 defineExpose({
   focusNode,
   focusPlant,
@@ -759,6 +918,10 @@ defineExpose({
   setVisiblePlants,
   setVisibleSuppliers,
   setVisibleCustomers,
+  renderRoutesThrough,
+  clearRoutesThrough,
+  highlightCorridorPath,
+  clearCorridorHighlight,
 });
 
 watch(
@@ -789,6 +952,16 @@ watch(() => store.mapLines, () => renderSupplyLines(), { deep: true });
 
 // リスクイベントの監視
 watch(() => store.riskEvents, () => renderRiskEventCircles(), { deep: true });
+
+// ルート分析ハイライトの監視
+watch(() => store.highlightedCorridorPath, (path) => {
+  if (path.length > 0) {
+    highlightCorridorPath(path);
+  } else {
+    clearCorridorHighlight();
+  }
+});
+
 // 倉庫・物流拠点の表示トグル
 watch(() => [store.showWarehouses, store.showLogisticsHubs], () => renderMarkers());
 
