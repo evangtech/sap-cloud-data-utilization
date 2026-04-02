@@ -19,7 +19,10 @@ import type {
   Warehouse,
   LogisticsHub,
   RouteThrough,
+  RiskScenarioSnapshot,
+  SimTariff,
 } from '@/types';
+import { buildScenarioFromActiveRisks } from '@/services/riskSimulationAdapter';
 import {
   fetchPlants,
   fetchSuppliers,
@@ -384,13 +387,29 @@ export const useSupplyChainStore = defineStore('supplyChain', () => {
         });
       }
 
-      // 新方式: activeImpactsからもimpactLevelを導出
+      // 新方式: activeImpactsから全ノードタイプのimpactLevelを導出
       for (const plant of plantsData) {
         const nodeImpacts = byNode.get(plant.id);
         if (nodeImpacts?.some((i) => i.impactType === 'direct')) {
           plant.impactLevel = 'direct';
         } else if (nodeImpacts?.some((i) => i.impactType === 'downstream')) {
           plant.impactLevel = 'downstream';
+        }
+      }
+      for (const supplier of suppliersData) {
+        const nodeImpacts = byNode.get(supplier.id);
+        if (nodeImpacts?.some((i) => i.impactType === 'direct')) {
+          supplier.impactLevel = 'direct';
+        } else if (nodeImpacts?.some((i) => i.impactType === 'downstream')) {
+          supplier.impactLevel = 'downstream';
+        }
+      }
+      for (const customer of customersData) {
+        const nodeImpacts = byNode.get(customer.id);
+        if (nodeImpacts?.some((i) => i.impactType === 'direct')) {
+          customer.impactLevel = 'direct';
+        } else if (nodeImpacts?.some((i) => i.impactType === 'downstream')) {
+          customer.impactLevel = 'downstream';
         }
       }
 
@@ -491,6 +510,27 @@ export const useSupplyChainStore = defineStore('supplyChain', () => {
 
   function selectRiskEvent(event: GraphRiskEvent | null) {
     selectedRiskEvent.value = event;
+  }
+
+  /**
+   * 現在のリスク状況からシミュレーションシナリオを生成
+   * simulation ストアの applyScenario() に渡す用途
+   */
+  function buildCurrentRiskScenario(currentTariffs: SimTariff[]): RiskScenarioSnapshot {
+    // ノードタイプマップを構築（アダプターがサプライヤーを判定するために必要）
+    const nodeTypes = new Map<string, string>();
+    suppliers.value.forEach((s) => nodeTypes.set(s.id, 'Supplier'));
+    plants.value.forEach((p) => nodeTypes.set(p.id, 'Plant'));
+    customers.value.forEach((c) => nodeTypes.set(c.id, 'Customer'));
+    warehouses.value.forEach((w) => nodeTypes.set(w.id, 'Warehouse'));
+    logisticsHubs.value.forEach((h) => nodeTypes.set(h.id, 'LogisticsHub'));
+
+    return buildScenarioFromActiveRisks(
+      activeImpactsByNode.value,
+      nodeTypes,
+      activeDisrupts.value,
+      currentTariffs,
+    );
   }
 
   // ========================================
@@ -620,6 +660,7 @@ export const useSupplyChainStore = defineStore('supplyChain', () => {
     toggleWarehouses,
     toggleLogisticsHubs,
     selectRiskEvent,
+    buildCurrentRiskScenario,
 
     // Legacy (後方互換性)
     factories,

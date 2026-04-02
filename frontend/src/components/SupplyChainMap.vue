@@ -412,11 +412,15 @@ function renderMarkers() {
     });
   }
 
-  // 倉庫（五角形マーカー）
+  // 倉庫（五角形マーカー — riskScoresでリスク色を反映）
   if (store.showWarehouses) {
     store.warehouses.forEach((wh) => {
+      const score = store.riskScores.get(wh.id);
+      const whColor = score && score.liveEventRisk > 0
+        ? (score.liveEventRisk > 3 ? COLORS.plantDirect : COLORS.plantDownstream)
+        : COLORS.warehouse;
       const svgPentagon = `<svg width="18" height="18" viewBox="0 0 18 18" xmlns="http://www.w3.org/2000/svg">
-        <polygon points="9,1 17,7 14,17 4,17 1,7" fill="${COLORS.warehouse}" stroke="white" stroke-width="1.5"/>
+        <polygon points="9,1 17,7 14,17 4,17 1,7" fill="${whColor}" stroke="white" stroke-width="1.5"/>
       </svg>`;
       const icon = L.divIcon({
         html: svgPentagon,
@@ -432,12 +436,15 @@ function renderMarkers() {
     });
   }
 
-  // 物流拠点（アンカー型マーカー）
+  // 物流拠点（アンカー型マーカー — statusとriskScoresの両方を反映）
   if (store.showLogisticsHubs) {
     store.logisticsHubs.forEach((hub) => {
-      const hubColor = hub.status === 'disrupted' ? COLORS.logisticsHubDisrupted
-        : hub.status === 'closed' ? COLORS.logisticsHubDisrupted
-        : COLORS.logisticsHub;
+      const score = store.riskScores.get(hub.id);
+      const hubColor = hub.status === 'disrupted' || hub.status === 'closed'
+        ? COLORS.logisticsHubDisrupted
+        : score && score.liveEventRisk > 0
+          ? (score.liveEventRisk > 3 ? COLORS.logisticsHubDisrupted : COLORS.plantDownstream)
+          : COLORS.logisticsHub;
       const typeLabel = hub.type === 'port' ? '⚓' : hub.type === 'airport' ? '✈' : '🚧';
       const svgHub = `<svg width="22" height="22" viewBox="0 0 22 22" xmlns="http://www.w3.org/2000/svg">
         <circle cx="11" cy="11" r="9" fill="${hubColor}" stroke="white" stroke-width="2"/>
@@ -725,11 +732,20 @@ function setVisibleCustomers(ids: Set<string>) {
   renderSupplyLines();
 }
 
-defineExpose({ 
+/**
+ * 緯度経度にフォーカス（NLクエリでRiskEvent等の結果表示用）
+ */
+function focusLatLon(lat: number, lon: number) {
+  if (!map) return;
+  map.setView([lat, lon], 8, { animate: true });
+}
+
+defineExpose({
   focusNode,
-  focusPlant, 
-  togglePlant, 
-  toggleSupplier, 
+  focusPlant,
+  focusLatLon,
+  togglePlant,
+  toggleSupplier,
   toggleCustomer,
   visiblePlants,
   visibleSuppliers,

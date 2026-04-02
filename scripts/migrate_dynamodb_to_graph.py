@@ -27,6 +27,7 @@ NEPTUNE_GRAPH_ID = "g-844qqbri1a"
 NEPTUNE_REGION = "us-west-2"
 EARTHQUAKE_TABLE = "EarthquakeEvent"
 PLANT_IMPACT_TABLE = "PlantImpactStatus"
+EVENT_TABLE = "event-table-dev"
 
 neptune_client = boto3.client("neptune-graph", region_name=NEPTUNE_REGION)
 dynamodb = boto3.resource("dynamodb", region_name=NEPTUNE_REGION)
@@ -184,12 +185,69 @@ def migrate_plant_impacts(eq_to_event: dict[str, str]) -> None:
     print(f"  移行完了: {migrated}/{len(items)} 件")
 
 
+def migrate_event_table_workflow() -> None:
+    """event-table ワークフローメタデータ → RiskEvent の reviewStatus/reviewedBy 移行
+
+    event-table の各レコードには status (CONFIRMED/PENDING/WATCHING/DISMISSED),
+    reviewed_by, updated_at 等のワークフロー情報がある。
+    既に Neptune に存在する RiskEvent があれば、そのワークフロー状態を上書きする。
+    """
+    print("\n── event-table ワークフロー → RiskEvent 移行 ──")
+    table = dynamodb.Table(EVENT_TABLE)
+
+    try:
+        response = table.scan()
+        items = response.get("Items", [])
+    except Exception as e:
+        print(f"  ⚠ テーブルスキャンエラー（event-table未作成の場合は正常）: {e}")
+        return
+
+    print(f"  {len(items)} 件のワークフローレコードを処理")
+    migrated = 0
+
+    # event-table のステータスを RiskEvent の reviewStatus にマッピング
+    status_map = {
+        "CONFIRMED": "confirmed",
+        "PENDING": "pending",
+        "WATCHING": "watching",
+        "DISMISSED": "dismissed",
+    }
+
+    for item in items:
+        event_id = item.get("event_id", "")
+        status = item.get("status", "")
+        reviewed_by = item.get("reviewed_by", "")
+        updated_at = item.get("updated_at", "")
+
+        if not event_id or not status:
+            continue
+
+        review_status = status_map.get(status, "pending")
+
+        # event_id でRiskEventを検索してreviewStatusを更新
+        # event-table の event_id はRiskEvent の sourceEventId に対応する想定
+        query = f"""
+        MATCH (re:RiskEvent)
+        WHERE re.sourceEventId = '{event_id}' OR re.id = '{event_id}'
+        SET re.reviewStatus = '{review_status}',
+            re.reviewedBy = '{reviewed_by}',
+            re.reviewedAt = datetime('{updated_at or datetime.now(timezone.utc).isoformat()}')
+        RETURN re.id AS id
+        """
+        result = execute_query(query)
+        if result.get("results"):
+            migrated += 1
+
+    print(f"  移行完了: {migrated}/{len(items)} 件")
+
+
 def verify_migration() -> None:
     """移行結果を検証"""
     print("\n── 移行検証 ──")
     queries = [
         ("移行済みRiskEvent", "MATCH (re:RiskEvent) WHERE re.source = 'p2pquake' AND re.description CONTAINS '移行元' RETURN count(re) as count"),
         ("移行済みIMPACTS", "MATCH ()-[i:IMPACTS]->() WHERE i.propagationRunId = 'migration' RETURN count(i) as count"),
+    ("ワークフロー更新済み", "MATCH (re:RiskEvent) WHERE re.reviewedBy IS NOT NULL RETURN count(re) as count"),
     ]
     for label, query in queries:
         result = execute_query(query)
@@ -207,6 +265,7 @@ def main() -> None:
 
     eq_to_event = migrate_earthquakes()
     migrate_plant_impacts(eq_to_event)
+    migrate_event_table_workflow()
 
     if not DRY_RUN:
         verify_migration()

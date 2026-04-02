@@ -117,12 +117,25 @@ function handleNlResult(result: NlQueryResult) {
     const supplierIds = new Set(store.suppliers.filter(s => resultIds.includes(s.id)).map(s => s.id));
     const customerIds = new Set(store.customers.filter(c => resultIds.includes(c.id)).map(c => c.id));
 
-    mapRef.value?.setVisiblePlants(plantIds.size > 0 ? plantIds : new Set());
-    mapRef.value?.setVisibleSuppliers(supplierIds.size > 0 ? supplierIds : new Set());
-    mapRef.value?.setVisibleCustomers(customerIds.size > 0 ? customerIds : new Set());
+    const matchedAnyKnownType = plantIds.size > 0 || supplierIds.size > 0 || customerIds.size > 0;
+
+    if (matchedAnyKnownType) {
+      // 既知のノードタイプにマッチした場合のみ、表示セットを絞り込む
+      // マッチしなかったタイプは全表示を維持（空セットで消さない）
+      if (plantIds.size > 0) mapRef.value?.setVisiblePlants(plantIds);
+      if (supplierIds.size > 0) mapRef.value?.setVisibleSuppliers(supplierIds);
+    } else {
+      // RiskEvent, LogisticsHub等の結果 — 既存ノード表示はそのまま維持し、
+      // 結果の lat/lon があればそこにフォーカスするだけ
+      // マップを空にしない
+    }
 
     const first = result.results[0];
-    if (first?.id) mapRef.value?.focusNode(first.id);
+    if (first?.lat && first?.lon) {
+      mapRef.value?.focusLatLon(Number(first.lat), Number(first.lon));
+    } else if (first?.id) {
+      mapRef.value?.focusNode(first.id);
+    }
   }
 }
 
