@@ -7,7 +7,7 @@ import { ref, onMounted, watch } from 'vue';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
 import { useSupplyChainStore } from '@/stores/supplyChain';
-import type { Plant, Supplier, Customer, MapLine, EarthquakeEvent } from '@/types';
+import type { Plant, Supplier, Customer, MapLine, EarthquakeEvent, GraphRiskEvent } from '@/types';
 
 // Leafletアイコン修正
 import iconUrl from 'leaflet/dist/images/marker-icon.png';
@@ -32,6 +32,9 @@ const visibleCustomers = ref<Set<string>>(new Set());
 const earthquakeMarkers = ref<L.Marker[]>([]);
 const earthquakeCircles = ref<L.Circle[]>([]);
 
+// リスクイベント範囲円レイヤー
+const riskEventCircles = ref<L.Circle[]>([]);
+
 // カラー定義（色弱対応: 形状＋色で区別）
 const COLORS = {
   // ノードカラー
@@ -41,6 +44,10 @@ const COLORS = {
   supplier: '#0891b2',       // シアン（三角形）— 青と明確に区別
   customer: '#22c55e',       // 緑（四角形）
   customerDownstream: '#f59e0b',
+  warehouse: '#8b5cf6',        // 紫（五角形）
+  logisticsHub: '#d97706',     // アンバー濃（アンカーアイコン）
+  logisticsHubDisrupted: '#ef4444',
+  riskEventCircle: '#ef4444',  // リスクイベント範囲円
   // エッジカラー
   edgeNormal: '#64748b',
   edgeImpacted: '#ef4444',
@@ -61,14 +68,13 @@ function initMap() {
     zoom: 6,
     minZoom: 5,
     maxZoom: 18,
-    maxBounds: [[20, 122], [46, 154]],
-    maxBoundsViscosity: 1.0,
   });
 
   // OpenStreetMap標準タイル
   L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
     attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',
     maxZoom: 19,
+    className: 'design-d-tile-layer',
   }).addTo(map);
 }
 
@@ -405,6 +411,100 @@ function renderMarkers() {
       markers.value.set(customer.id, marker);
     });
   }
+
+  // 倉庫（五角形マーカー — riskScoresでリスク色を反映）
+  if (store.showWarehouses) {
+    store.warehouses.forEach((wh) => {
+      const score = store.riskScores.get(wh.id);
+      const whColor = score && score.liveEventRisk > 0
+        ? (score.liveEventRisk > 3 ? COLORS.plantDirect : COLORS.plantDownstream)
+        : COLORS.warehouse;
+      const svgPentagon = `<svg width="18" height="18" viewBox="0 0 18 18" xmlns="http://www.w3.org/2000/svg">
+        <polygon points="9,1 17,7 14,17 4,17 1,7" fill="${whColor}" stroke="white" stroke-width="1.5"/>
+      </svg>`;
+      const icon = L.divIcon({
+        html: svgPentagon,
+        className: 'custom-marker-icon',
+        iconSize: [18, 18],
+        iconAnchor: [9, 9],
+        popupAnchor: [0, -10],
+      });
+      const marker = L.marker([wh.latitude, wh.longitude], { icon });
+      marker.bindTooltip(wh.name, { direction: 'top', offset: [0, -10] });
+      marker.addTo(map!);
+      markers.value.set(wh.id, marker);
+    });
+  }
+
+  // 物流拠点（アンカー型マーカー — statusとriskScoresの両方を反映）
+  if (store.showLogisticsHubs) {
+    store.logisticsHubs.forEach((hub) => {
+      const score = store.riskScores.get(hub.id);
+      const hubColor = hub.status === 'disrupted' || hub.status === 'closed'
+        ? COLORS.logisticsHubDisrupted
+        : score && score.liveEventRisk > 0
+          ? (score.liveEventRisk > 3 ? COLORS.logisticsHubDisrupted : COLORS.plantDownstream)
+          : COLORS.logisticsHub;
+      const typeLabel = hub.type === 'port' ? '⚓' : hub.type === 'airport' ? '✈' : '🚧';
+      const svgHub = `<svg width="22" height="22" viewBox="0 0 22 22" xmlns="http://www.w3.org/2000/svg">
+        <circle cx="11" cy="11" r="9" fill="${hubColor}" stroke="white" stroke-width="2"/>
+        <text x="11" y="15" text-anchor="middle" font-size="10">${typeLabel}</text>
+      </svg>`;
+      const icon = L.divIcon({
+        html: svgHub,
+        className: 'custom-marker-icon',
+        iconSize: [22, 22],
+        iconAnchor: [11, 11],
+        popupAnchor: [0, -12],
+      });
+      const marker = L.marker([hub.latitude, hub.longitude], { icon });
+      const statusLabel = hub.status === 'operational' ? '稼働中' : hub.status === 'disrupted' ? '混乱中' : '閉鎖';
+      marker.bindTooltip(`${hub.name} (${statusLabel})`, { direction: 'top', offset: [0, -12] });
+      marker.addTo(map!);
+      markers.value.set(hub.id, marker);
+    });
+  }
+}
+
+/**
+ * リスクイベント範囲円を描画
+ */
+function renderRiskEventCircles() {
+  if (!map) return;
+
+  // 既存の範囲円を削除
+  riskEventCircles.value.forEach((c) => c.remove());
+  riskEventCircles.value = [];
+
+  // アクティブ/復旧中の確認済みイベントのみ表示
+  const activeEvents = store.riskEvents.filter(
+    (e) => ['active', 'recovering'].includes(e.lifecycleStatus)
+      && e.reviewStatus === 'confirmed'
+      && e.radiusKm > 0,
+  );
+
+  for (const ev of activeEvents) {
+    const opacity = ev.lifecycleStatus === 'active' ? 0.25 : 0.12;
+    const severityColors = ['#fbbf24', '#f59e0b', '#ef4444', '#dc2626', '#991b1b'];
+    const color = severityColors[Math.min(ev.severity - 1, 4)];
+
+    const circle = L.circle([ev.latitude, ev.longitude], {
+      radius: ev.radiusKm * 1000,
+      color,
+      fillColor: color,
+      fillOpacity: opacity,
+      weight: 1,
+      opacity: 0.5,
+    });
+
+    circle.bindTooltip(
+      `${ev.title} (重大度: ${ev.severity})`,
+      { direction: 'top' },
+    );
+    circle.on('click', () => store.selectRiskEvent(ev));
+    circle.addTo(map!);
+    riskEventCircles.value.push(circle);
+  }
 }
 
 /**
@@ -632,11 +732,20 @@ function setVisibleCustomers(ids: Set<string>) {
   renderSupplyLines();
 }
 
-defineExpose({ 
+/**
+ * 緯度経度にフォーカス（NLクエリでRiskEvent等の結果表示用）
+ */
+function focusLatLon(lat: number, lon: number) {
+  if (!map) return;
+  map.setView([lat, lon], 8, { animate: true });
+}
+
+defineExpose({
   focusNode,
-  focusPlant, 
-  togglePlant, 
-  toggleSupplier, 
+  focusPlant,
+  focusLatLon,
+  togglePlant,
+  toggleSupplier,
   toggleCustomer,
   visiblePlants,
   visibleSuppliers,
@@ -678,12 +787,20 @@ watch(() => store.earthquakes, () => renderEarthquakes(), { deep: true });
 
 watch(() => store.mapLines, () => renderSupplyLines(), { deep: true });
 
+// リスクイベントの監視
+watch(() => store.riskEvents, () => renderRiskEventCircles(), { deep: true });
+// 倉庫・物流拠点の表示トグル
+watch(() => [store.showWarehouses, store.showLogisticsHubs], () => renderMarkers());
+
 onMounted(() => {
   initMap();
   if (store.plants.length > 0) {
     initVisibility();
     renderMarkers();
     renderSupplyLines();
+  }
+  if (store.riskEvents.length > 0) {
+    renderRiskEventCircles();
   }
   if (store.earthquakes.length > 0) {
     renderEarthquakes();
@@ -700,7 +817,9 @@ onMounted(() => {
   width: 100%;
   height: 100%;
   min-height: 400px;
-  background: #eef1f5;
+  background:
+    radial-gradient(circle at top left, rgba(212, 216, 221, 0.55), transparent 28%),
+    linear-gradient(180deg, #e9edf1 0%, #dde5ea 100%);
 }
 </style>
 
@@ -709,6 +828,17 @@ onMounted(() => {
 .custom-marker-icon {
   background: none !important;
   border: none !important;
+}
+
+.leaflet-container {
+  background:
+    radial-gradient(circle at top left, rgba(212, 216, 221, 0.55), transparent 28%),
+    linear-gradient(180deg, #e9edf1 0%, #dde5ea 100%);
+  font-family: 'BIZ UDGothic', 'Noto Sans JP', sans-serif;
+}
+
+.leaflet-tile-pane {
+  filter: grayscale(0.18) saturate(0.78) brightness(1.03) contrast(0.95);
 }
 
 /* 地震マーカーのパルスアニメーション */
@@ -795,5 +925,18 @@ onMounted(() => {
 
 .leaflet-control-zoom a:last-child {
   border-bottom: none !important;
+}
+
+.leaflet-control-attribution {
+  background: rgba(255, 255, 255, 0.92) !important;
+  color: #6b7280 !important;
+  border-top: 1px solid #d0d5dd;
+  border-left: 1px solid #d0d5dd;
+  border-radius: 3px 0 0 0;
+  padding: 3px 6px !important;
+}
+
+.leaflet-control-attribution a {
+  color: #1b2838 !important;
 }
 </style>

@@ -11,7 +11,18 @@ import type {
   DashboardStats,
   MapMarker,
   MapLine,
+  GraphRiskEvent,
+  NodeRiskScore,
+  NodeImpact,
+  EventImpact,
+  DisruptsEdge,
+  Warehouse,
+  LogisticsHub,
+  RouteThrough,
+  RiskScenarioSnapshot,
+  SimTariff,
 } from '@/types';
+import { buildScenarioFromActiveRisks } from '@/services/riskSimulationAdapter';
 import {
   fetchPlants,
   fetchSuppliers,
@@ -21,6 +32,13 @@ import {
   fetchEarthquakes,
   fetchPlantImpacts,
   fetchDashboardStats,
+  fetchRiskEvents,
+  fetchActiveImpacts,
+  fetchActiveDisrupts,
+  fetchNodeRiskScores,
+  fetchWarehouses,
+  fetchLogisticsHubs,
+  fetchRoutesThrough,
 } from '@/services/api';
 
 /**
@@ -58,6 +76,19 @@ export const useSupplyChainStore = defineStore('supplyChain', () => {
   const showPlants = ref(true);
   const showSuppliers = ref(true);
   const showCustomers = ref(true);
+
+  // リスクイベント関連状態（新規）
+  const warehouses = ref<Warehouse[]>([]);
+  const logisticsHubs = ref<LogisticsHub[]>([]);
+  const routesThrough = ref<RouteThrough[]>([]);
+  const riskEvents = ref<GraphRiskEvent[]>([]);
+  const activeImpactsByNode = ref<Map<string, NodeImpact[]>>(new Map());
+  const activeImpactsByEvent = ref<Map<string, EventImpact[]>>(new Map());
+  const activeDisrupts = ref<DisruptsEdge[]>([]);
+  const riskScores = ref<Map<string, NodeRiskScore>>(new Map());
+  const selectedRiskEvent = ref<GraphRiskEvent | null>(null);
+  const showWarehouses = ref(true);
+  const showLogisticsHubs = ref(true);
 
   // ========================================
   // Computed - Dashboard Stats
@@ -251,56 +282,94 @@ export const useSupplyChainStore = defineStore('supplyChain', () => {
         customersData,
         locationsData,
         relationsData,
+        // レガシー互換性（Phase 3で削除）
         earthquakesData,
         impactsData,
+        // リスクイベント関連（新規）
+        warehousesData,
+        logisticsHubsData,
+        routesThroughData,
+        riskEventsData,
+        activeImpactsData,
+        activeDisruptsData,
+        riskScoresData,
       ] = await Promise.all([
         fetchPlants(),
         fetchSuppliers(),
         fetchCustomers(),
         fetchLocations(),
         fetchSupplyRelations(),
+        // レガシー互換性（Phase 3で削除）
         fetchEarthquakes(),
         fetchPlantImpacts(),
+        // リスクイベント関連（新規）
+        fetchWarehouses(),
+        fetchLogisticsHubs(),
+        fetchRoutesThrough(),
+        fetchRiskEvents({ lifecycleStatus: ['detected', 'active', 'recovering'] }),
+        fetchActiveImpacts(),
+        fetchActiveDisrupts(),
+        fetchNodeRiskScores(),
       ]);
 
-      plants.value = plantsData;
-      suppliers.value = suppliersData;
-      customers.value = customersData;
-      locations.value = locationsData;
-      supplyRelations.value = relationsData;
-      earthquakes.value = earthquakesData;
-      plantImpacts.value = impactsData;
-      
-      console.log('データ読み込み完了:', {
-        plants: plants.value.length,
-        suppliers: suppliers.value.length,
-        customers: customers.value.length,
-        relations: supplyRelations.value.length,
-        earthquakes: earthquakes.value.length,
-        impacts: plantImpacts.value.length,
-      });
-      
-      // 影響データに基づいて工場のimpactLevelを更新
+      // --- 全ての派生状態をローカル変数で先に構築 ---
+
+      // インパクトをノード別・イベント別にインデックス化
+      // activeImpactsDataはハンドラーから全フィールドを返すが、
+      // EventImpact型は軽量版のため、NodeImpact構築時はanyでアクセスする
+      const byNode = new Map<string, NodeImpact[]>();
+      const byEvent = new Map<string, EventImpact[]>();
+      for (const impact of activeImpactsData) {
+        const raw = impact as Record<string, any>;
+        const nodeKey = impact.nodeId;
+        if (!byNode.has(nodeKey)) byNode.set(nodeKey, []);
+        byNode.get(nodeKey)!.push({
+          eventId: impact.eventId,
+          eventTitle: impact.eventTitle ?? '',
+          severity: impact.severity,
+          impactType: impact.impactType as 'direct' | 'downstream',
+          status: impact.status as 'active' | 'recovering' | 'resolved',
+          estimatedRecoveryDays: raw.estimatedRecoveryDays ?? null,
+          costImpactPct: raw.costImpactPct ?? null,
+          cachedImpactAmount: impact.cachedImpactAmount ?? 0,
+          impactConfidence: impact.impactConfidence ?? 0,
+          assessmentMethod: (raw.assessmentMethod ?? 'automated') as NodeImpact['assessmentMethod'],
+          firstDetectedAt: raw.firstDetectedAt ?? null,
+          lastUpdatedAt: raw.lastUpdatedAt ?? null,
+          resolvedAt: raw.resolvedAt ?? null,
+          propagationRunId: raw.propagationRunId ?? null,
+          overrideReviewStatus: (raw.overrideReviewStatus as NodeImpact['overrideReviewStatus']) ?? null,
+        });
+
+        const evKey = impact.eventId;
+        if (!byEvent.has(evKey)) byEvent.set(evKey, []);
+        byEvent.get(evKey)!.push(impact);
+      }
+
+      // リスクスコアをノードIDでインデックス化
+      const scoresMap = new Map<string, NodeRiskScore>();
+      for (const score of riskScoresData) {
+        scoresMap.set(score.nodeId, score);
+      }
+
+      // レガシー互換性: impactLevelをプラント/サプライヤー/カスタマに適用
       if (impactsData.length > 0) {
         const impactMap = new Map<string, 'direct' | 'downstream'>();
         impactsData.forEach((impact) => {
           const existing = impactMap.get(impact.plantId);
-          // directが優先
           if (!existing || impact.impactLevel === 'direct') {
             impactMap.set(impact.plantId, impact.impactLevel);
           }
         });
-        
-        plants.value = plants.value.map((p) => ({
-          ...p,
-          impactLevel: impactMap.get(p.id) || p.impactLevel || 'none',
-        }));
-        
-        // 影響を受けた工場に関連するサプライヤー・カスタマも更新
+
+        plantsData.forEach((p) => {
+          p.impactLevel = impactMap.get(p.id) || p.impactLevel || 'none';
+        });
+
         const affectedPlantIds = new Set(impactMap.keys());
         const affectedSupplierIds = new Set<string>();
         const affectedCustomerIds = new Set<string>();
-        
+
         relationsData.forEach((rel) => {
           if (affectedPlantIds.has(rel.toId) && rel.fromType === 'supplier') {
             affectedSupplierIds.add(rel.fromId);
@@ -309,23 +378,70 @@ export const useSupplyChainStore = defineStore('supplyChain', () => {
             affectedCustomerIds.add(rel.toId);
           }
         });
-        
-        suppliers.value = suppliers.value.map((s) => ({
-          ...s,
-          impactLevel: affectedSupplierIds.has(s.id) ? 'downstream' as const : (s.impactLevel || 'none' as const),
-        }));
-        
-        customers.value = customers.value.map((c) => ({
-          ...c,
-          impactLevel: affectedCustomerIds.has(c.id) ? 'downstream' as const : (c.impactLevel || 'none' as const),
-        }));
+
+        suppliersData.forEach((s) => {
+          if (affectedSupplierIds.has(s.id)) s.impactLevel = 'downstream';
+        });
+        customersData.forEach((c) => {
+          if (affectedCustomerIds.has(c.id)) c.impactLevel = 'downstream';
+        });
       }
-      
+
+      // 新方式: activeImpactsから全ノードタイプのimpactLevelを導出
+      for (const plant of plantsData) {
+        const nodeImpacts = byNode.get(plant.id);
+        if (nodeImpacts?.some((i) => i.impactType === 'direct')) {
+          plant.impactLevel = 'direct';
+        } else if (nodeImpacts?.some((i) => i.impactType === 'downstream')) {
+          plant.impactLevel = 'downstream';
+        }
+      }
+      for (const supplier of suppliersData) {
+        const nodeImpacts = byNode.get(supplier.id);
+        if (nodeImpacts?.some((i) => i.impactType === 'direct')) {
+          supplier.impactLevel = 'direct';
+        } else if (nodeImpacts?.some((i) => i.impactType === 'downstream')) {
+          supplier.impactLevel = 'downstream';
+        }
+      }
+      for (const customer of customersData) {
+        const nodeImpacts = byNode.get(customer.id);
+        if (nodeImpacts?.some((i) => i.impactType === 'direct')) {
+          customer.impactLevel = 'direct';
+        } else if (nodeImpacts?.some((i) => i.impactType === 'downstream')) {
+          customer.impactLevel = 'downstream';
+        }
+      }
+
+      // --- 同一ティックでバッチ更新 ---
+      // Vueのリアクティビティシステムは同一同期ブロック内のref更新を
+      // 次のマイクロタスクまでバッチ処理する（same-tick batched update）
+      plants.value = plantsData;
+      suppliers.value = suppliersData;
+      customers.value = customersData;
+      locations.value = locationsData;
+      supplyRelations.value = relationsData;
+      earthquakes.value = earthquakesData;
+      plantImpacts.value = impactsData;
+      warehouses.value = warehousesData;
+      logisticsHubs.value = logisticsHubsData;
+      routesThrough.value = routesThroughData;
+      riskEvents.value = riskEventsData;
+      activeImpactsByNode.value = byNode;
+      activeImpactsByEvent.value = byEvent;
+      activeDisrupts.value = activeDisruptsData;
+      riskScores.value = scoresMap;
+
       console.log('データ読み込み完了:', {
-        plants: plants.value.length,
-        suppliers: suppliers.value.length,
-        customers: customers.value.length,
-        relations: supplyRelations.value.length,
+        plants: plantsData.length,
+        suppliers: suppliersData.length,
+        customers: customersData.length,
+        relations: relationsData.length,
+        riskEvents: riskEventsData.length,
+        activeImpacts: activeImpactsData.length,
+        riskScores: riskScoresData.length,
+        warehouses: warehousesData.length,
+        logisticsHubs: logisticsHubsData.length,
       });
     } catch (e) {
       error.value = e instanceof Error ? e.message : 'データの読み込みに失敗しました';
@@ -384,6 +500,74 @@ export const useSupplyChainStore = defineStore('supplyChain', () => {
     showPlants.value = !showPlants.value;
   }
 
+  function toggleWarehouses() {
+    showWarehouses.value = !showWarehouses.value;
+  }
+
+  function toggleLogisticsHubs() {
+    showLogisticsHubs.value = !showLogisticsHubs.value;
+  }
+
+  function selectRiskEvent(event: GraphRiskEvent | null) {
+    selectedRiskEvent.value = event;
+  }
+
+  /**
+   * 現在のリスク状況からシミュレーションシナリオを生成
+   * simulation ストアの applyScenario() に渡す用途
+   */
+  function buildCurrentRiskScenario(currentTariffs: SimTariff[]): RiskScenarioSnapshot {
+    // ノードタイプマップを構築（アダプターがサプライヤーを判定するために必要）
+    const nodeTypes = new Map<string, string>();
+    suppliers.value.forEach((s) => nodeTypes.set(s.id, 'Supplier'));
+    plants.value.forEach((p) => nodeTypes.set(p.id, 'Plant'));
+    customers.value.forEach((c) => nodeTypes.set(c.id, 'Customer'));
+    warehouses.value.forEach((w) => nodeTypes.set(w.id, 'Warehouse'));
+    logisticsHubs.value.forEach((h) => nodeTypes.set(h.id, 'LogisticsHub'));
+
+    return buildScenarioFromActiveRisks(
+      activeImpactsByNode.value,
+      nodeTypes,
+      activeDisrupts.value,
+      currentTariffs,
+    );
+  }
+
+  // ========================================
+  // Computed - Risk Dashboard Stats
+  // ========================================
+
+  const riskDashboardStats = computed(() => {
+    let directCount = 0;
+    let downstreamCount = 0;
+    let totalExposure = 0;
+
+    for (const [, impacts] of activeImpactsByNode.value) {
+      const hasDirect = impacts.some((i) => i.impactType === 'direct');
+      const hasDownstream = impacts.some((i) => i.impactType === 'downstream');
+      if (hasDirect) directCount++;
+      else if (hasDownstream) downstreamCount++;
+      totalExposure += impacts.reduce((sum, i) => sum + i.cachedImpactAmount, 0);
+    }
+
+    const activeEventCount = riskEvents.value.filter(
+      (e) => e.lifecycleStatus !== 'resolved' && e.reviewStatus === 'confirmed',
+    ).length;
+
+    const pendingReviewCount = riskEvents.value.filter(
+      (e) => e.reviewStatus === 'pending',
+    ).length;
+
+    let highestRisk: NodeRiskScore | null = null;
+    for (const score of riskScores.value.values()) {
+      if (!highestRisk || score.combinedOperationalRisk > highestRisk.combinedOperationalRisk) {
+        highestRisk = score;
+      }
+    }
+
+    return { directCount, downstreamCount, totalExposure, activeEventCount, pendingReviewCount, highestRisk };
+  });
+
   // ========================================
   // Legacy Computed (後方互換性)
   // ========================================
@@ -417,7 +601,7 @@ export const useSupplyChainStore = defineStore('supplyChain', () => {
   const paginatedFactories = computed(() => paginatedPlants.value);
 
   return {
-    // State
+    // State（既存）
     plants,
     suppliers,
     customers,
@@ -436,7 +620,20 @@ export const useSupplyChainStore = defineStore('supplyChain', () => {
     showSuppliers,
     showCustomers,
 
-    // Computed
+    // State（リスクイベント新規）
+    warehouses,
+    logisticsHubs,
+    routesThrough,
+    riskEvents,
+    activeImpactsByNode,
+    activeImpactsByEvent,
+    activeDisrupts,
+    riskScores,
+    selectedRiskEvent,
+    showWarehouses,
+    showLogisticsHubs,
+
+    // Computed（既存）
     dashboardStats,
     filteredPlants,
     paginatedPlants,
@@ -444,7 +641,10 @@ export const useSupplyChainStore = defineStore('supplyChain', () => {
     mapMarkers,
     mapLines,
 
-    // Actions
+    // Computed（リスク新規）
+    riskDashboardStats,
+
+    // Actions（既存）
     loadAllData,
     selectPlant,
     selectEarthquake,
@@ -455,6 +655,12 @@ export const useSupplyChainStore = defineStore('supplyChain', () => {
     toggleSuppliers,
     toggleCustomers,
     togglePlants,
+
+    // Actions（リスク新規）
+    toggleWarehouses,
+    toggleLogisticsHubs,
+    selectRiskEvent,
+    buildCurrentRiskScenario,
 
     // Legacy (後方互換性)
     factories,

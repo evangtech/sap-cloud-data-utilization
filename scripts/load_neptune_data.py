@@ -9,10 +9,12 @@ Neptune Analytics サプライチェーンKG データ投入スクリプト（v2
 
 スキーマ:
   Node labels : Country, HSCode, Regulation, Supplier, Material, Product,
-                Plant, Warehouse, Customer
+                Plant, Warehouse, Customer, RiskCategory, LogisticsHub, RiskEvent
   Edge labels : LOCATED_IN, CLASSIFIED_AS, TARIFF_APPLIES, SUBJECT_TO,
                 SUPPLIES, HAS_COMPONENT, PRODUCED_AT, STORED_AT,
-                SUPPLIES_TO, ORDERED_BY, ALTERNATIVE_TO
+                SUPPLIES_TO, ORDERED_BY, ALTERNATIVE_TO,
+                ROUTES_THROUGH, CATEGORIZED_AS, OCCURRED_IN,
+                IMPACTS, DISRUPTS, RELATED_EVENT
 """
 import json
 import boto3
@@ -710,6 +712,370 @@ def create_alternative_edges() -> None:
 
 
 # ════════════════════════════════════════════════════════════════════
+# 12. RiskCategory（リスクカテゴリ）
+# ════════════════════════════════════════════════════════════════════
+def create_risk_categories() -> None:
+    print("RiskCategory を作成中...")
+    categories = [
+        # id, name, parentCategory, description, avgRecoveryDays
+        # 自然災害
+        ("RC-natural-earthquake", "地震", "natural_disaster",
+         "地震による供給網への影響", 30),
+        ("RC-natural-typhoon", "台風", "natural_disaster",
+         "台風・暴風雨による供給網への影響", 14),
+        ("RC-natural-flood", "洪水", "natural_disaster",
+         "洪水・浸水による供給網への影響", 21),
+        # 地政学的
+        ("RC-geopolitical-sanction", "制裁措置", "geopolitical",
+         "経済制裁による貿易制限", 180),
+        ("RC-geopolitical-trade_restriction", "貿易規制", "geopolitical",
+         "関税引上げ・輸出規制", 365),
+        ("RC-geopolitical-conflict", "紛争", "geopolitical",
+         "武力紛争・政情不安による供給網への影響", 90),
+        # 運用上
+        ("RC-operational-port_closure", "港湾閉鎖", "operational",
+         "港湾の閉鎖・機能停止", 7),
+        ("RC-operational-factory_incident", "工場事故", "operational",
+         "工場での事故・火災", 45),
+        ("RC-operational-pandemic", "パンデミック", "operational",
+         "感染症流行による操業停止", 60),
+        # 財務
+        ("RC-financial-bankruptcy", "サプライヤー倒産", "financial",
+         "サプライヤーの経営破綻", 120),
+        ("RC-financial-credit", "信用リスク", "financial",
+         "サプライヤーの信用悪化", 90),
+        ("RC-financial-fx", "為替変動", "financial",
+         "急激な為替レート変動", 30),
+    ]
+    for cid, name, parent, desc, avg_days in categories:
+        safe_desc = desc.replace("'", "\\'")
+        execute_query(f"""
+        CREATE (:RiskCategory {{
+            id: '{cid}', name: '{name}', parentCategory: '{parent}',
+            description: '{safe_desc}', avgRecoveryDays: {avg_days}
+        }})""")
+    print(f"  {len(categories)} 件")
+
+
+# ════════════════════════════════════════════════════════════════════
+# 13. LogisticsHub（物流拠点）
+# ════════════════════════════════════════════════════════════════════
+def create_logistics_hubs() -> None:
+    print("LogisticsHub を作成中...")
+    hubs = [
+        # id, name, type, country_code, lat, lon, capacity, status
+        ("LH-tokyo-port", "東京港", "port", "JP",
+         35.6220, 139.7753, "4500000 TEU/年", "operational"),
+        ("LH-yokohama-port", "横浜港", "port", "JP",
+         35.4437, 139.6500, "2900000 TEU/年", "operational"),
+        ("LH-kobe-port", "神戸港", "port", "JP",
+         34.6600, 135.2100, "2800000 TEU/年", "operational"),
+        ("LH-shanghai-port", "上海港", "port", "CN",
+         31.3600, 121.6100, "47000000 TEU/年", "operational"),
+        ("LH-kaohsiung-port", "高雄港", "port", "TW",
+         22.6100, 120.2800, "9900000 TEU/年", "operational"),
+        ("LH-singapore-port", "シンガポール港", "port", "SG",
+         1.2600, 103.8400, "37000000 TEU/年", "operational"),
+        ("LH-la-port", "ロサンゼルス港", "port", "US",
+         33.7400, -118.2700, "9600000 TEU/年", "operational"),
+        ("LH-rotterdam-port", "ロッテルダム港", "port", "DE",
+         51.9500, 4.1300, "14500000 TEU/年", "operational"),
+        ("LH-narita-airport", "成田国際空港", "airport", "JP",
+         35.7648, 140.3864, "2500000 t/年", "operational"),
+        ("LH-kansai-airport", "関西国際空港", "airport", "JP",
+         34.4320, 135.2304, "800000 t/年", "operational"),
+        ("LH-laem-chabang-port", "レムチャバン港", "port", "TH",
+         13.0700, 100.8800, "8000000 TEU/年", "operational"),
+        ("LH-haiphong-port", "ハイフォン港", "port", "VN",
+         20.8500, 106.6800, "5000000 TEU/年", "operational"),
+    ]
+    for hid, name, htype, cc, lat, lon, cap, status in hubs:
+        safe_name = name.replace("'", "\\'")
+        execute_query(f"""
+        CREATE (:LogisticsHub {{
+            id: '{hid}', name: '{safe_name}', type: '{htype}',
+            country_code: '{cc}', lat: {lat}, lon: {lon},
+            capacity: '{cap}', status: '{status}'
+        }})""")
+    print(f"  {len(hubs)} 件")
+
+
+# ════════════════════════════════════════════════════════════════════
+# 14. LogisticsHub — LOCATED_IN エッジ
+# ════════════════════════════════════════════════════════════════════
+def create_logistics_hub_edges() -> None:
+    print("LogisticsHub LOCATED_IN エッジを作成中...")
+    hub_countries = [
+        ("LH-tokyo-port", "JP"), ("LH-yokohama-port", "JP"),
+        ("LH-kobe-port", "JP"), ("LH-shanghai-port", "CN"),
+        ("LH-kaohsiung-port", "TW"), ("LH-singapore-port", "SG"),
+        ("LH-la-port", "US"), ("LH-rotterdam-port", "DE"),
+        ("LH-narita-airport", "JP"), ("LH-kansai-airport", "JP"),
+        ("LH-laem-chabang-port", "TH"), ("LH-haiphong-port", "VN"),
+    ]
+    for hid, cc in hub_countries:
+        execute_query(f"""
+        MATCH (lh:LogisticsHub {{id: '{hid}'}}), (c:Country {{code: '{cc}'}})
+        CREATE (lh)-[:LOCATED_IN]->(c)
+        """)
+    print(f"  {len(hub_countries)} 件")
+
+
+# ════════════════════════════════════════════════════════════════════
+# 15. ROUTES_THROUGH エッジ
+# ════════════════════════════════════════════════════════════════════
+def create_routes_through_edges() -> None:
+    print("ROUTES_THROUGH エッジを作成中...")
+    routes = [
+        # from_id, to_hub_id, transit_days, is_primary
+        # 日本の工場 → 日本の港湾
+        ("PLT001", "LH-tokyo-port", 1, True),
+        ("PLT002", "LH-kobe-port", 1, True),
+        ("PLT003", "LH-yokohama-port", 1, True),
+        ("PLT004", "LH-kobe-port", 2, True),
+        ("PLT005", "LH-kobe-port", 1, False),
+        ("PLT006", "LH-tokyo-port", 2, True),
+        # 日本の倉庫 → 日本の港湾
+        ("WHS001", "LH-tokyo-port", 1, True),
+        ("WHS002", "LH-kobe-port", 1, True),
+        ("WHS003", "LH-yokohama-port", 1, True),
+        # 海外サプライヤー → 地元港湾
+        ("SUP001", "LH-kaohsiung-port", 1, True),   # TSMC → 高雄港
+        ("SUP004", "LH-kaohsiung-port", 1, True),   # Foxconn → 高雄港
+        ("SUP005", "LH-shanghai-port", 2, True),     # BYD → 上海港
+        ("SUP006", "LH-kobe-port", 1, True),         # Murata → 神戸港
+        ("SUP007", "LH-tokyo-port", 1, True),        # TDK → 東京港
+        # 海外工場 → 地元港湾
+        ("PLT007", "LH-shanghai-port", 1, True),     # 深圳工場 → 上海港
+        ("PLT008", "LH-laem-chabang-port", 2, True), # バンコク → レムチャバン
+        ("PLT009", "LH-la-port", 3, True),           # グアダラハラ → LA港
+        ("PLT010", "LH-haiphong-port", 2, True),     # ハノイ → ハイフォン
+        # シンガポール倉庫 → シンガポール港
+        ("WHS005", "LH-singapore-port", 1, True),
+        # ロサンゼルス倉庫 → LA港
+        ("WHS006", "LH-la-port", 1, True),
+    ]
+    for from_id, to_id, days, primary in routes:
+        execute_query(f"""
+        MATCH (f {{id: '{from_id}'}}), (lh:LogisticsHub {{id: '{to_id}'}})
+        CREATE (f)-[:ROUTES_THROUGH {{
+            transitDays: {days}, isPrimary: {str(primary).lower()}
+        }}]->(lh)
+        """)
+    print(f"  {len(routes)} 件")
+
+
+# ════════════════════════════════════════════════════════════════════
+# 16. RiskEvent（サンプル履歴リスクイベント）
+# ════════════════════════════════════════════════════════════════════
+def create_sample_risk_events() -> None:
+    print("RiskEvent を作成中...")
+    events = [
+        # dedupeKey, title, description, eventType, source, severity,
+        # lifecycleStatus, reviewStatus, reviewedBy, trustLevel,
+        # lat, lon, radiusKm, geoScopeType, admin1, locationName,
+        # startDate, endDate, confidence, categoryId, countryCode
+        (
+            "p2pquake:noto:20240101",
+            "2024年能登半島地震",
+            "石川県能登地方を震源とするM7.6の地震",
+            "earthquake", "p2pquake", 5,
+            "resolved", "confirmed", "system", "trusted_machine",
+            37.5, 137.2, 200, "region", "石川県", "能登半島",
+            "2024-01-01T16:10:00Z", "2024-03-31T00:00:00Z",
+            1.0, "RC-natural-earthquake", "JP",
+        ),
+        (
+            "manual:suez:20210323",
+            "2021年スエズ運河封鎖",
+            "コンテナ船エバーギブンの座礁によるスエズ運河の6日間封鎖",
+            "port_closure", "manual", 4,
+            "resolved", "confirmed", "analyst", "analyst",
+            30.0, 32.58, 50, "point", None, "スエズ運河",
+            "2021-03-23T00:00:00Z", "2021-03-29T00:00:00Z",
+            1.0, "RC-operational-port_closure", "JP",  # 影響は日本にも波及
+        ),
+        (
+            "manual:shanghai:20220328",
+            "2022年上海ロックダウン",
+            "COVID-19対策による上海市全域の都市封鎖、港湾・工場の操業停止",
+            "pandemic", "manual", 4,
+            "resolved", "confirmed", "analyst", "analyst",
+            31.23, 121.47, 100, "city", "上海市", "上海",
+            "2022-03-28T00:00:00Z", "2022-06-01T00:00:00Z",
+            1.0, "RC-operational-pandemic", "CN",
+        ),
+        (
+            "manual:chips-act:20220809",
+            "米国CHIPS法施行",
+            "半導体製造の国内回帰促進と対中輸出規制強化",
+            "trade_restriction", "manual", 3,
+            "active", "confirmed", "analyst", "analyst",
+            38.9, -77.04, 0, "multi_country", None, "米国（グローバル影響）",
+            "2022-08-09T00:00:00Z", None,
+            1.0, "RC-geopolitical-trade_restriction", "US",
+        ),
+        (
+            "manual:typhoon-tw:20250815",
+            "2025年台風15号（台湾直撃）",
+            "大型台風が台湾を直撃、TSMCファブ一時操業停止",
+            "typhoon", "manual", 3,
+            "resolved", "confirmed", "system", "trusted_machine",
+            25.03, 121.57, 300, "country", None, "台湾",
+            "2025-08-15T00:00:00Z", "2025-08-22T00:00:00Z",
+            1.0, "RC-natural-typhoon", "TW",
+        ),
+    ]
+    import uuid
+    for (dk, title, desc, etype, src, sev,
+         lifecycle, review, reviewed_by, trust,
+         lat, lon, radius, geo_scope, admin1, loc_name,
+         start, end, conf, cat_id, cc) in events:
+        eid = str(uuid.uuid4())
+        safe_title = title.replace("'", "\\'")
+        safe_desc = desc.replace("'", "\\'")
+        safe_loc = loc_name.replace("'", "\\'")
+        admin1_set = f"re.admin1 = '{admin1}'," if admin1 else ""
+        end_set = f"re.endDate = datetime('{end}')," if end else ""
+
+        execute_query(f"""
+        CREATE (re:RiskEvent {{
+            id: '{eid}', sourceEventId: '{dk}',
+            dedupeKey: '{dk}', title: '{safe_title}',
+            description: '{safe_desc}', eventType: '{etype}',
+            source: '{src}', severity: {sev},
+            lifecycleStatus: '{lifecycle}', reviewStatus: '{review}',
+            reviewedBy: '{reviewed_by}', trustLevel: '{trust}',
+            lat: {lat}, lon: {lon}, radiusKm: {radius},
+            geoScopeType: '{geo_scope}',
+            locationName: '{safe_loc}',
+            startDate: datetime('{start}'),
+            updatedAt: datetime('{start}'),
+            confidence: {conf},
+            latestPropagationSequence: 0
+        }})""")
+        # admin1 が存在する場合は SET で追加
+        if admin1:
+            execute_query(f"""
+            MATCH (re:RiskEvent {{dedupeKey: '{dk}'}})
+            SET re.admin1 = '{admin1}'
+            """)
+        # endDate が存在する場合は SET で追加
+        if end:
+            execute_query(f"""
+            MATCH (re:RiskEvent {{dedupeKey: '{dk}'}})
+            SET re.endDate = datetime('{end}')
+            """)
+        # CATEGORIZED_AS エッジ
+        execute_query(f"""
+        MATCH (re:RiskEvent {{dedupeKey: '{dk}'}}),
+              (rc:RiskCategory {{id: '{cat_id}'}})
+        CREATE (re)-[:CATEGORIZED_AS]->(rc)
+        """)
+        # OCCURRED_IN エッジ
+        execute_query(f"""
+        MATCH (re:RiskEvent {{dedupeKey: '{dk}'}}),
+              (c:Country {{code: '{cc}'}})
+        CREATE (re)-[:OCCURRED_IN]->(c)
+        """)
+    print(f"  {len(events)} 件")
+
+
+# ════════════════════════════════════════════════════════════════════
+# 17. IMPACTS エッジ（サンプル）
+# ════════════════════════════════════════════════════════════════════
+def create_sample_impacts() -> None:
+    print("IMPACTS エッジを作成中...")
+    impacts = [
+        # eventDedupeKey, targetId, severity, impactType,
+        # estimatedRecoveryDays, costImpactPct, status,
+        # cachedImpactAmount, assessmentMethod, impactConfidence
+        # 能登半島地震 → 名古屋工場(直接)、東京工場(下流)
+        ("p2pquake:noto:20240101", "PLT003", 4, "direct",
+         30, 15.0, "resolved", 500000000, "automated", 0.95),
+        ("p2pquake:noto:20240101", "PLT001", 2, "downstream",
+         14, 5.0, "resolved", 200000000, "automated", 0.80),
+        # 上海ロックダウン → BYD(直接)、上海港(直接)
+        ("manual:shanghai:20220328", "SUP005", 4, "direct",
+         60, 25.0, "resolved", 800000000, "automated", 1.0),
+        ("manual:shanghai:20220328", "LH-shanghai-port", 5, "direct",
+         45, 30.0, "resolved", 1200000000, "automated", 0.9),
+        # 台風 → TSMC(直接)、高雄港(直接)
+        ("manual:typhoon-tw:20250815", "SUP001", 3, "direct",
+         7, 10.0, "resolved", 350000000, "automated", 0.85),
+        ("manual:typhoon-tw:20250815", "LH-kaohsiung-port", 3, "direct",
+         5, 8.0, "resolved", 250000000, "automated", 0.80),
+    ]
+    for (dk, target, sev, itype, days, cost_pct, status,
+         amount, method, confidence) in impacts:
+        execute_query(f"""
+        MATCH (re:RiskEvent {{dedupeKey: '{dk}'}}),
+              (t {{id: '{target}'}})
+        CREATE (re)-[:IMPACTS {{
+            severity: {sev}, impactType: '{itype}',
+            estimatedRecoveryDays: {days}, costImpactPct: {cost_pct},
+            status: '{status}', cachedImpactAmount: {amount},
+            assessmentMethod: '{method}', impactConfidence: {confidence},
+            firstDetectedAt: datetime('2026-04-01T00:00:00Z'),
+            lastUpdatedAt: datetime('2026-04-01T00:00:00Z'),
+            propagationRunId: 'seed-data'
+        }}]->(t)
+        """)
+    print(f"  {len(impacts)} 件")
+
+
+# ════════════════════════════════════════════════════════════════════
+# 18. DISRUPTS エッジ（サンプル）
+# ════════════════════════════════════════════════════════════════════
+def create_sample_disrupts() -> None:
+    print("DISRUPTS エッジを作成中...")
+    disrupts = [
+        # eventDedupeKey, hsCode, originCountry, destinationCountry,
+        # regulatorBody, effectiveDate, tariffIncreasePct, exportRestricted
+        ("manual:chips-act:20220809", "8542.31", "CN", "US",
+         "US Department of Commerce", "2022-10-07", 25.0, True),
+        ("manual:chips-act:20220809", "8542.31", "TW", "CN",
+         "US Department of Commerce", "2022-10-07", 0.0, True),
+    ]
+    for (dk, hs, origin, dest, regulator, eff_date,
+         tariff_pct, restricted) in disrupts:
+        restricted_str = str(restricted).lower()
+        execute_query(f"""
+        MATCH (re:RiskEvent {{dedupeKey: '{dk}'}}),
+              (hs:HSCode {{code: '{hs}'}})
+        CREATE (re)-[:DISRUPTS {{
+            originCountry: '{origin}', destinationCountry: '{dest}',
+            regulatorBody: '{regulator}', effectiveDate: '{eff_date}',
+            tariffIncreasePct: {tariff_pct}, exportRestricted: {restricted_str}
+        }}]->(hs)
+        """)
+    print(f"  {len(disrupts)} 件")
+
+
+# ════════════════════════════════════════════════════════════════════
+# 19. RELATED_EVENT エッジ（サンプル）
+# ════════════════════════════════════════════════════════════════════
+def create_sample_related_events() -> None:
+    print("RELATED_EVENT エッジを作成中...")
+    relations = [
+        # fromDedupeKey, toDedupeKey, relationshipType, delayDays, confidence
+        # 上海ロックダウン → 上海港の混雑（contributes_to）
+        ("manual:shanghai:20220328", "manual:suez:20210323",
+         "coincident", 0, 0.3),
+    ]
+    for from_dk, to_dk, rel_type, delay, conf in relations:
+        execute_query(f"""
+        MATCH (from:RiskEvent {{dedupeKey: '{from_dk}'}}),
+              (to:RiskEvent {{dedupeKey: '{to_dk}'}})
+        CREATE (from)-[:RELATED_EVENT {{
+            relationshipType: '{rel_type}',
+            delayDays: {delay}, confidence: {conf}
+        }}]->(to)
+        """)
+    print(f"  {len(relations)} 件")
+
+
+# ════════════════════════════════════════════════════════════════════
 # 検証
 # ════════════════════════════════════════════════════════════════════
 def verify_data() -> None:
@@ -724,6 +1090,9 @@ def verify_data() -> None:
         ("Plant", "MATCH (n:Plant) RETURN count(n) as count"),
         ("Warehouse", "MATCH (n:Warehouse) RETURN count(n) as count"),
         ("Customer", "MATCH (n:Customer) RETURN count(n) as count"),
+        ("RiskCategory", "MATCH (n:RiskCategory) RETURN count(n) as count"),
+        ("LogisticsHub", "MATCH (n:LogisticsHub) RETURN count(n) as count"),
+        ("RiskEvent", "MATCH (n:RiskEvent) RETURN count(n) as count"),
     ]
     edge_queries = [
         ("LOCATED_IN", "MATCH ()-[r:LOCATED_IN]->() RETURN count(r) as count"),
@@ -736,6 +1105,12 @@ def verify_data() -> None:
         ("SUPPLIES_TO", "MATCH ()-[r:SUPPLIES_TO]->() RETURN count(r) as count"),
         ("ORDERED_BY", "MATCH ()-[r:ORDERED_BY]->() RETURN count(r) as count"),
         ("ALTERNATIVE_TO", "MATCH ()-[r:ALTERNATIVE_TO]->() RETURN count(r) as count"),
+        ("ROUTES_THROUGH", "MATCH ()-[r:ROUTES_THROUGH]->() RETURN count(r) as count"),
+        ("CATEGORIZED_AS", "MATCH ()-[r:CATEGORIZED_AS]->() RETURN count(r) as count"),
+        ("OCCURRED_IN", "MATCH ()-[r:OCCURRED_IN]->() RETURN count(r) as count"),
+        ("IMPACTS", "MATCH ()-[r:IMPACTS]->() RETURN count(r) as count"),
+        ("DISRUPTS", "MATCH ()-[r:DISRUPTS]->() RETURN count(r) as count"),
+        ("RELATED_EVENT", "MATCH ()-[r:RELATED_EVENT]->() RETURN count(r) as count"),
     ]
     total_nodes = 0
     total_edges = 0
@@ -789,6 +1164,16 @@ def main() -> None:
     create_supply_chain_edges()
     create_ordered_by_edges()
     create_alternative_edges()
+
+    # ── リスクイベント関連 ──
+    create_risk_categories()
+    create_logistics_hubs()
+    create_logistics_hub_edges()
+    create_routes_through_edges()
+    create_sample_risk_events()
+    create_sample_impacts()
+    create_sample_disrupts()
+    create_sample_related_events()
 
     verify_data()
     print("\n✅ 投入完了!")
