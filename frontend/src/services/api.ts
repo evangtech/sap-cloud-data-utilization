@@ -152,12 +152,12 @@ export async function fetchSupplyRelations(): Promise<SupplyRelation[]> {
     }
     return (data || []).map((r: any) => ({
       fromId: r?.fromId || '',
-      fromType: (r?.fromType?.toLowerCase() as 'plant' | 'supplier') || 'plant',
+      fromType: (r?.fromType?.toLowerCase() as SupplyRelation['fromType']) || 'plant',
       fromName: r?.fromName || '',
       fromLat: r?.fromLat || 0,
       fromLon: r?.fromLon || 0,
       toId: r?.toId || '',
-      toType: (r?.toType?.toLowerCase() as 'plant' | 'customer') || 'plant',
+      toType: (r?.toType?.toLowerCase() as SupplyRelation['toType']) || 'plant',
       toName: r?.toName || '',
       toLat: r?.toLat || 0,
       toLon: r?.toLon || 0,
@@ -1154,6 +1154,23 @@ export async function fetchRiskEventChain(eventId: string): Promise<unknown[]> {
     return data ?? [];
   } catch (error) {
     console.error('因果チェーン取得エラー:', error);
+    return [];
+  }
+}
+
+/**
+ * 復旧ダッシュボードデータを取得（オンデマンド）
+ */
+export async function fetchRecoveryDashboard(): Promise<unknown[]> {
+  const c = await getClient();
+  if (!c) return [];
+
+  try {
+    const { data, errors } = await c.queries.getRecoveryDashboard();
+    if (errors) console.error('復旧ダッシュボード取得エラー:', errors);
+    return data ?? [];
+  } catch (error) {
+    console.error('復旧ダッシュボード取得エラー:', error);
     return [];
   }
 }

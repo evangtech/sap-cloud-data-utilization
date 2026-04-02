@@ -21,6 +21,7 @@ import type {
   RouteThrough,
   RiskScenarioSnapshot,
   SimTariff,
+  CorridorRisk,
 } from '@/types';
 import { buildScenarioFromActiveRisks } from '@/services/riskSimulationAdapter';
 import {
@@ -39,6 +40,12 @@ import {
   fetchWarehouses,
   fetchLogisticsHubs,
   fetchRoutesThrough,
+  fetchCorridorRisks,
+  fetchRecoveryDashboard,
+  fetchRiskEventHistory,
+  fetchRiskEventChain,
+  fetchImpactsByEvent,
+  fetchDisruptsByEvent,
 } from '@/services/api';
 
 /**
@@ -89,6 +96,13 @@ export const useSupplyChainStore = defineStore('supplyChain', () => {
   const selectedRiskEvent = ref<GraphRiskEvent | null>(null);
   const showWarehouses = ref(true);
   const showLogisticsHubs = ref(true);
+
+  // オンデマンドデータ（タブアクティベーション時にフェッチ）
+  const corridorRisks = ref<CorridorRisk[]>([]);
+  const recoveryData = ref<unknown[]>([]);
+  const corridorLoading = ref(false);
+  const recoveryLoading = ref(false);
+  const highlightedCorridorPath = ref<string[]>([]);
 
   // ========================================
   // Computed - Dashboard Stats
@@ -534,6 +548,78 @@ export const useSupplyChainStore = defineStore('supplyChain', () => {
   }
 
   // ========================================
+  // Actions - On-Demand Fetch
+  // ========================================
+
+  async function loadCorridorRisks() {
+    corridorLoading.value = true;
+    try {
+      corridorRisks.value = await fetchCorridorRisks();
+    } catch (e) {
+      console.error('ルートリスク取得エラー:', e);
+    } finally {
+      corridorLoading.value = false;
+    }
+  }
+
+  async function loadRecoveryDashboard() {
+    recoveryLoading.value = true;
+    try {
+      recoveryData.value = await fetchRecoveryDashboard();
+    } catch (e) {
+      console.error('復旧ダッシュボード取得エラー:', e);
+    } finally {
+      recoveryLoading.value = false;
+    }
+  }
+
+  async function refreshRiskScores() {
+    try {
+      const scores = await fetchNodeRiskScores();
+      const scoresMap = new Map<string, NodeRiskScore>();
+      for (const score of scores) {
+        scoresMap.set(score.nodeId, score);
+      }
+      riskScores.value = scoresMap;
+    } catch (e) {
+      console.error('リスクスコア更新エラー:', e);
+    }
+  }
+
+  /**
+   * supplyRelationsをBFS走査してルートパスのノードID列を復元
+   */
+  function bfsPath(originId: string, destId: string): string[] {
+    const adj = new Map<string, string[]>();
+    for (const rel of supplyRelations.value) {
+      if (!adj.has(rel.fromId)) adj.set(rel.fromId, []);
+      adj.get(rel.fromId)!.push(rel.toId);
+    }
+    const queue: string[][] = [[originId]];
+    const visited = new Set<string>([originId]);
+    while (queue.length > 0) {
+      const path = queue.shift()!;
+      const current = path[path.length - 1]!;
+      if (current === destId) return path;
+      for (const neighbor of adj.get(current) ?? []) {
+        if (!visited.has(neighbor)) {
+          visited.add(neighbor);
+          queue.push([...path, neighbor]);
+        }
+      }
+    }
+    return [originId, destId];
+  }
+
+  function highlightCorridor(originId: string, destId: string) {
+    highlightedCorridorPath.value = bfsPath(originId, destId);
+  }
+
+  function clearCorridorHighlight() {
+    highlightedCorridorPath.value = [];
+  }
+
+  // ========================================
   // Computed - Risk Dashboard Stats
   // ========================================
 
@@ -656,11 +742,23 @@ export const useSupplyChainStore = defineStore('supplyChain', () => {
     toggleCustomers,
     togglePlants,
 
+    // State（オンデマンド）
+    corridorRisks,
+    recoveryData,
+    corridorLoading,
+    recoveryLoading,
+    highlightedCorridorPath,
+
     // Actions（リスク新規）
     toggleWarehouses,
     toggleLogisticsHubs,
     selectRiskEvent,
     buildCurrentRiskScenario,
+    loadCorridorRisks,
+    loadRecoveryDashboard,
+    refreshRiskScores,
+    highlightCorridor,
+    clearCorridorHighlight,
 
     // Legacy (後方互換性)
     factories,

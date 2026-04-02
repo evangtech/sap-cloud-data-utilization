@@ -15,16 +15,34 @@ type ShellPageMeta = {
 
 const navItems = [
   {
-    to: '/simulation',
-    name: 'シミュレーション',
-    routeName: 'simulation',
-    icon: 'simulation',
-  },
-  {
     to: '/',
     name: 'サプライチェーンマップ',
     routeName: 'map',
     icon: 'map',
+  },
+  {
+    to: '/risk-events',
+    name: 'リスクイベント',
+    routeName: 'risk-events',
+    icon: 'bell',
+  },
+  {
+    to: '/risk-dashboard',
+    name: 'リスクダッシュボード',
+    routeName: 'risk-dashboard',
+    icon: 'simulation',
+  },
+  {
+    to: '/corridor-analysis',
+    name: 'ルート分析',
+    routeName: 'corridor-analysis',
+    icon: 'map',
+  },
+  {
+    to: '/simulation',
+    name: 'シミュレーション',
+    routeName: 'simulation',
+    icon: 'simulation',
   },
   {
     to: '/notifications',
@@ -58,6 +76,18 @@ const shellPageMeta: Record<string, ShellPageMeta> = {
   'node-detail': {
     title: 'ノード詳細',
     subtitle: 'Supply Chain Node Intelligence',
+  },
+  'risk-events': {
+    title: 'リスクイベント管理',
+    subtitle: 'Risk Event Management',
+  },
+  'risk-dashboard': {
+    title: 'リスクダッシュボード',
+    subtitle: 'Plant Risk Score Rankings',
+  },
+  'corridor-analysis': {
+    title: 'サプライルートリスク分析',
+    subtitle: 'Corridor Risk Analysis',
   },
 };
 
