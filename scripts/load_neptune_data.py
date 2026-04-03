@@ -73,6 +73,8 @@ def create_countries() -> None:
         ("SG", "シンガポール", "Southeast Asia", 5, "NONE", 0.1117, 1.3521, 103.8198),
         ("PH", "フィリピン", "Southeast Asia", 28, "NONE", 0.0026, 12.8797, 121.7740),
         ("ID", "インドネシア", "Southeast Asia", 22, "NONE", 0.000096, -0.7893, 113.9213),
+        # v2追加
+        ("AE", "アラブ首長国連邦", "Middle East", 20, "NONE", 0.0407, 23.4241, 53.8478),
     ]
     for code, name, region, risk, sanction, fx, lat, lon in countries:
         execute_query(f"""
@@ -106,6 +108,8 @@ def create_hscodes() -> None:
         ("2612.10", "レアアース鉱石", "26", "2612"),
         ("7408.11", "精製銅線", "74", "7408"),
         ("8544.49", "電気ケーブル・コネクタ", "85", "8544"),
+        # v2追加
+        ("2812.90", "その他ハロゲン化物（NF3含む）", "28", "2812"),
     ]
     for code, desc, chapter, heading in hscodes:
         execute_query(f"""
@@ -169,6 +173,10 @@ def create_suppliers() -> None:
         ("SUP108", "Vale S.A.", "BR", "リオデジャネイロ", 82, 78, 42, "CLEAR", -22.9068, -43.1729, "T2"),
         ("SUP109", "MMC Norilsk Nickel", "RU", "ノリリスク", 60, 70, 50, "LISTED", 69.3558, 88.1893, "T2"),
         ("SUP110", "PT Aneka Tambang", "ID", "ジャカルタ", 68, 71, 38, "CLEAR", -6.2088, 106.8456, "T2"),
+        # v2追加
+        ("SUP111", "関東電化工業", "JP", "群馬県渋川市", 90, 85, 7, "CLEAR", 36.4900, 139.0000, "T2"),
+        ("SUP112", "日本製鉄", "JP", "北海道室蘭市", 88, 90, 14, "CLEAR", 42.3200, 140.9700, "T2"),
+        ("SUP113", "Rapidus", "JP", "北海道千歳市", 75, 80, 21, "CLEAR", 43.0700, 141.3500, "T1"),
     ]
     for sid, name, cc, region, credit, quality, lt, sanction, lat, lon, tier in suppliers:
         safe_name = name.replace("'", "\\'")
@@ -204,6 +212,8 @@ def create_materials() -> None:
         ("MAT013", "精製銅線ハーネス", "金属", 0.45, "kg", "IN", "7408.11", 12.00, "USD", 1800000),
         ("MAT014", "高速コネクタモジュール", "電子部品", 0.02, "kg", "JP", "8544.49", 6.80, "USD", 5000000),
         ("MAT015", "車載カメラモジュール", "電子部品", 0.08, "kg", "VN", "9013.80", 22.00, "USD", 600000),
+        # v2追加
+        ("MAT016", "三フッ化窒素 (NF3) 半導体プロセスガス", "プロセスガス", 0.01, "kg", "JP", "2812.90", 850.00, "USD", 500000),
     ]
     for mid, desc, grp, w, wu, origin, hs, price, cur, vol in materials:
         safe_desc = desc.replace("'", "\\'")
@@ -481,6 +491,9 @@ def create_supplies_edges() -> None:
         ("SUP108", "MAT012", False),  # Vale → レアアース（代替）
         ("SUP109", "MAT013", False),  # Norilsk → 銅（制裁リスク）
         ("SUP110", "MAT013", False),  # Aneka Tambang → 銅（代替）
+        # v2追加
+        ("SUP111", "MAT016", True),   # 関東電化 → NF3
+        ("SUP112", "MAT008", False),  # 日本製鉄 → アルミ合金板（鉄鋼代替供給）
     ]
     for sid, mid, primary in supplies:
         execute_query(f"""
@@ -633,6 +646,13 @@ def create_supply_chain_edges() -> None:
         ("Plant", "PLT002", "Customer", "CUS008"),  # 大阪 → Siemens(医療)
         ("Plant", "PLT003", "Customer", "CUS009"),  # 名古屋 → VW
         ("Plant", "PLT007", "Customer", "CUS010"),  # 深圳 → Samsung
+        # v2追加 — NF3サプライチェーン + 鉄鋼サプライチェーン
+        ("Supplier", "SUP111", "Supplier", "SUP001"),  # 関東電化 → TSMC (NF3供給)
+        ("Supplier", "SUP111", "Supplier", "SUP002"),  # 関東電化 → Samsung
+        ("Supplier", "SUP111", "Supplier", "SUP113"),  # 関東電化 → Rapidus
+        ("Supplier", "SUP112", "Plant", "PLT003"),     # 日本製鉄 → 名古屋EV工場
+        ("Supplier", "SUP112", "Plant", "PLT001"),     # 日本製鉄 → 東京本社工場
+        ("Supplier", "SUP113", "Plant", "PLT001"),     # Rapidus → 東京 (次世代チップ)
     ]
     for from_label, from_id, to_label, to_id in flows:
         execute_query(f"""
@@ -788,6 +808,11 @@ def create_logistics_hubs() -> None:
          13.0700, 100.8800, "8000000 TEU/年", "operational"),
         ("LH-haiphong-port", "ハイフォン港", "port", "VN",
          20.8500, 106.6800, "5000000 TEU/年", "operational"),
+        # v2追加
+        ("LH-hachinohe-port", "八戸港", "port", "JP",
+         40.5300, 141.5300, "500000 TEU/年", "operational"),
+        ("LH-hormuz-strait", "ホルムズ海峡", "port", "AE",
+         26.5600, 56.2500, "21000000 bbl/日", "disrupted"),
     ]
     for hid, name, htype, cc, lat, lon, cap, status in hubs:
         safe_name = name.replace("'", "\\'")
@@ -812,6 +837,8 @@ def create_logistics_hub_edges() -> None:
         ("LH-la-port", "US"), ("LH-rotterdam-port", "DE"),
         ("LH-narita-airport", "JP"), ("LH-kansai-airport", "JP"),
         ("LH-laem-chabang-port", "TH"), ("LH-haiphong-port", "VN"),
+        # v2追加
+        ("LH-hachinohe-port", "JP"), ("LH-hormuz-strait", "AE"),
     ]
     for hid, cc in hub_countries:
         execute_query(f"""
@@ -854,6 +881,10 @@ def create_routes_through_edges() -> None:
         ("WHS005", "LH-singapore-port", 1, True),
         # ロサンゼルス倉庫 → LA港
         ("WHS006", "LH-la-port", 1, True),
+        # v2追加
+        ("SUP111", "LH-tokyo-port", 1, True),           # 関東電化 → 東京港
+        ("SUP112", "LH-hachinohe-port", 1, True),       # 日本製鉄 → 八戸港
+        ("PLT006", "LH-hachinohe-port", 3, False),      # 仙台工場 → 八戸港（代替）
     ]
     for from_id, to_id, days, primary in routes:
         execute_query(f"""
@@ -924,6 +955,153 @@ def create_sample_risk_events() -> None:
             25.03, 121.57, 300, "country", None, "台湾",
             "2025-08-15T00:00:00Z", "2025-08-22T00:00:00Z",
             1.0, "RC-natural-typhoon", "TW",
+        ),
+        # ════════════════════════════════════════════════════════
+        # v2: 2025/07 – 2026/04 日本関連リスクイベント (14件)
+        # ════════════════════════════════════════════════════════
+        # ── 自然災害 ──
+        (
+            "v2:kamchatka:20250730",
+            "カムチャッカM8.8地震津波 — 太平洋沿岸警報",
+            "カムチャッカ半島沖M8.8地震による津波が北海道・東北太平洋沿岸に到達。根室80cm、久慈1.3m。190万人避難指示。港湾一時閉鎖。",
+            "earthquake", "manual", 3,
+            "resolved", "confirmed", "analyst", "analyst",
+            43.33, 145.57, 800, "region", "北海道", "根室市",
+            "2025-07-30T06:00:00Z", "2025-08-01T00:00:00Z",
+            0.95, "RC-natural-earthquake", "JP",
+        ),
+        (
+            "v2:kyushuflood:20250806",
+            "九州南部豪雨 — 鹿児島・宮崎土砂災害",
+            "鹿児島・宮崎で記録的豪雨。218棟浸水、6000戸停電。384000人に最高レベル警報。物流・鉄道に影響。",
+            "flood", "manual", 3,
+            "resolved", "confirmed", "analyst", "analyst",
+            31.56, 130.56, 200, "region", "鹿児島県", "鹿児島県",
+            "2025-08-06T00:00:00Z", "2025-08-12T00:00:00Z",
+            0.90, "RC-natural-flood", "JP",
+        ),
+        (
+            "v2:typhoon15:20250905",
+            "台風15号 — 宮崎記録的豪雨・静岡竜巻",
+            "宮崎県都農町で24時間465.5mm記録的豪雨。静岡県牧之原市でJEF3竜巻（風速75m/s）発生、74人負傷、1000棟以上損壊。",
+            "typhoon", "manual", 4,
+            "resolved", "confirmed", "analyst", "analyst",
+            31.91, 131.42, 300, "region", "宮崎県", "宮崎県",
+            "2025-09-05T00:00:00Z", "2025-09-10T00:00:00Z",
+            0.90, "RC-natural-typhoon", "JP",
+        ),
+        (
+            "v2:halong:20251009",
+            "台風ハロン — 伊豆諸島直撃",
+            "最大風速198km/hの台風が伊豆諸島を直撃。八丈島で349mm記録的降水。2700戸断水、2200戸停電。航路・道路不通。",
+            "typhoon", "manual", 3,
+            "resolved", "confirmed", "analyst", "analyst",
+            33.11, 139.80, 250, "region", "東京都", "伊豆諸島",
+            "2025-10-08T00:00:00Z", "2025-10-12T00:00:00Z",
+            0.85, "RC-natural-typhoon", "JP",
+        ),
+        (
+            "v2:aomori:20251208",
+            "青森県太平洋沖地震 — 八戸港被害",
+            "青森県沖でM7.6地震。47人負傷、約4000棟損壊。八戸港で港湾被害。東北新幹線新青森-福島間運休、約17000人に影響。90000人避難。",
+            "earthquake", "manual", 4,
+            "resolved", "confirmed", "analyst", "analyst",
+            40.90, 143.20, 300, "region", "青森県", "青森県",
+            "2025-12-08T23:15:00Z", "2025-12-31T00:00:00Z",
+            0.90, "RC-natural-earthquake", "JP",
+        ),
+        (
+            "v2:taiwan:20251227",
+            "台湾宜蘭沖地震 — TSMC一時避難",
+            "台湾東部沖M7.0地震。TSMCが新竹サイエンスパーク施設で避難措置実施。耐震対策奏功し2日以内に生産ほぼ復旧。",
+            "earthquake", "manual", 3,
+            "resolved", "confirmed", "analyst", "analyst",
+            24.79, 121.75, 200, "region", None, "宜蘭県沖",
+            "2025-12-27T00:00:00Z", "2025-12-30T00:00:00Z",
+            0.85, "RC-natural-earthquake", "TW",
+        ),
+        # ── 工場・産業事故 ──
+        (
+            "v2:nf3fire:20250807",
+            "関東電化NF3工場火災 — 半導体ガス供給危機",
+            "関東電化工業の渋川工場で火災。作業員1名死亡。NF3生産ラインの1基が損傷。同社は日本国内NF3生産の90%を占め、TSMC・Samsung・Rapidus等に供給。経済産業省が韓国からの輸入拡大を調整。",
+            "factory_incident", "manual", 5,
+            "active", "confirmed", "analyst", "analyst",
+            36.49, 139.00, 0, "point", "群馬県", "渋川市",
+            "2025-08-07T00:00:00Z", None,
+            0.98, "RC-operational-factory_incident", "JP",
+        ),
+        (
+            "v2:nipponsteel:20251201",
+            "日本製鉄室蘭 高炉設備事故",
+            "日本製鉄北日本製鉄所の熱風炉で爆発・火災が発生。作業員10名は無事避難。高炉は全面停止、付帯設備に大きな被害。復旧に数ヶ月の見込み。",
+            "factory_incident", "manual", 4,
+            "active", "confirmed", "analyst", "analyst",
+            42.32, 140.97, 0, "point", "北海道", "室蘭市",
+            "2025-12-01T00:00:00Z", None,
+            0.90, "RC-operational-factory_incident", "JP",
+        ),
+        # ── 貿易・地政学 ──
+        (
+            "v2:ustariff:20250722",
+            "米国対日関税 — 25%→15%枠組合意",
+            "トランプ政権が日本に25%相互関税を発動(4/9)。7/22に枠組合意で15%に引下げ。自動車は15%(MFN込)、鉄鋼・アルミ・銅は50%維持。日本は5500億ドルの対米投資を約束。",
+            "trade_restriction", "manual", 5,
+            "active", "confirmed", "analyst", "analyst",
+            38.90, -77.04, 0, "multi_country", None, "Washington DC",
+            "2025-04-09T00:00:00Z", None,
+            1.0, "RC-geopolitical-trade_restriction", "US",
+        ),
+        (
+            "v2:cnmineral:20250404",
+            "中国重要鉱物輸出規制 — レアアース許可制",
+            "中国がサマリウム・ガドリニウム・テルビウム・ジスプロシウム等7種のレアアース輸出に許可制を導入。日本は2024年にレアアース輸入の63%を中国に依存、重希土類は99%以上。許可手続きが極めて遅く、事実上のボトルネック化。",
+            "trade_restriction", "manual", 4,
+            "active", "confirmed", "analyst", "analyst",
+            39.90, 116.40, 0, "multi_country", None, "北京",
+            "2025-04-04T00:00:00Z", None,
+            1.0, "RC-geopolitical-trade_restriction", "CN",
+        ),
+        (
+            "v2:cndualuse:20260106",
+            "中国対日デュアルユース輸出禁止",
+            "中国商務部が日本の軍事用途向け全デュアルユース品目の輸出を禁止。レアアース・先端電子部品・航空宇宙材料等1000品目以上が対象。高市首相の台湾有事発言を契機に発動。民生用途にも不確実性が波及。",
+            "sanction", "manual", 5,
+            "active", "confirmed", "analyst", "analyst",
+            39.90, 116.40, 0, "multi_country", None, "北京",
+            "2026-01-06T00:00:00Z", None,
+            0.95, "RC-geopolitical-sanction", "CN",
+        ),
+        (
+            "v2:scotus:20260220",
+            "米最高裁IEEPA関税違憲判決 → Section 122移行",
+            "米最高裁がIEEPAに基づく関税を違憲と判断(6-3)。2/23に関税徴収停止。直後にトランプ大統領がSection 122に基づくグローバル10%関税を発動(2/24)。",
+            "trade_restriction", "manual", 3,
+            "active", "confirmed", "analyst", "analyst",
+            38.90, -77.04, 0, "multi_country", None, "Washington DC",
+            "2026-02-20T00:00:00Z", None,
+            0.95, "RC-geopolitical-trade_restriction", "US",
+        ),
+        # ── 物流 ──
+        (
+            "v2:hormuz:20260228",
+            "ホルムズ海峡危機 — 日本原油輸入73.7%遮断",
+            "米・イスラエルのイラン攻撃(2/28)を受け、3/4からホルムズ海峡が事実上閉鎖。タンカー通航70-90%減。原油価格126ドル/バレルに急騰。日本は原油の95.1%を中東から輸入し、73.7%がホルムズ経由。3/16に8000万バレルの石油備蓄放出。",
+            "port_closure", "manual", 5,
+            "active", "under_review", "analyst", "analyst",
+            26.56, 56.25, 500, "region", None, "ホルムズ海峡",
+            "2026-02-28T00:00:00Z", None,
+            0.90, "RC-geopolitical-conflict", "AE",
+        ),
+        (
+            "v2:redsea:20250701",
+            "紅海フーシ派攻撃 — アジア欧州航路迂回継続",
+            "フーシ派による商船攻撃が継続し、主要海運各社がスエズ運河回避を維持。喜望峰回りで10日・100万ドル/航海の追加コスト。2025年10月に一時沈静化するも2026年2月のイラン戦争で再燃。",
+            "port_closure", "manual", 3,
+            "resolved", "confirmed", "analyst", "analyst",
+            12.60, 43.30, 2000, "region", None, "バブ・エル・マンデブ海峡",
+            "2025-07-01T00:00:00Z", "2025-10-31T00:00:00Z",
+            0.90, "RC-operational-port_closure", "AE",
         ),
     ]
     import uuid
@@ -1005,6 +1183,111 @@ def create_sample_impacts() -> None:
          7, 10.0, "resolved", 350000000, "automated", 0.85),
         ("manual:typhoon-tw:20250815", "LH-kaohsiung-port", 3, "direct",
          5, 8.0, "resolved", 250000000, "automated", 0.80),
+        # ════════════════════════════════════════════════════════
+        # v2: 2025/07 – 2026/04 IMPACTS (44件)
+        # ════════════════════════════════════════════════════════
+        # ── NF3火災カスケード (7) ──
+        ("v2:nf3fire:20250807", "SUP111", 5, "direct",
+         120, 50.0, "active", 8000000000, "automated", 0.98),
+        ("v2:nf3fire:20250807", "SUP001", 4, "downstream",
+         90, 8.0, "active", 15000000000, "automated", 0.90),
+        ("v2:nf3fire:20250807", "SUP002", 3, "downstream",
+         60, 5.0, "active", 9000000000, "automated", 0.85),
+        ("v2:nf3fire:20250807", "SUP113", 5, "downstream",
+         120, 30.0, "active", 3000000000, "automated", 0.92),
+        ("v2:nf3fire:20250807", "PLT001", 3, "downstream",
+         45, 10.0, "active", 2500000000, "automated", 0.80),
+        ("v2:nf3fire:20250807", "PLT002", 2, "downstream",
+         30, 6.0, "active", 1200000000, "automated", 0.75),
+        ("v2:nf3fire:20250807", "CUS002", 2, "downstream",
+         45, 4.0, "active", 5000000000, "automated", 0.70),
+        # ── 日本製鉄事故 (4) ──
+        ("v2:nipponsteel:20251201", "SUP112", 4, "direct",
+         180, 25.0, "active", 12000000000, "automated", 0.90),
+        ("v2:nipponsteel:20251201", "PLT003", 3, "downstream",
+         60, 8.0, "active", 2800000000, "automated", 0.80),
+        ("v2:nipponsteel:20251201", "CUS001", 2, "downstream",
+         45, 3.0, "active", 8500000000, "automated", 0.75),
+        ("v2:nipponsteel:20251201", "CUS004", 2, "downstream",
+         45, 5.0, "active", 2000000000, "automated", 0.70),
+        # ── 青森地震 (3) ──
+        ("v2:aomori:20251208", "LH-hachinohe-port", 4, "direct",
+         60, 30.0, "resolved", 1500000000, "automated", 0.90),
+        ("v2:aomori:20251208", "PLT006", 2, "downstream",
+         14, 5.0, "resolved", 450000000, "automated", 0.80),
+        ("v2:aomori:20251208", "LH-tokyo-port", 2, "downstream",
+         7, 3.0, "resolved", 800000000, "automated", 0.70),
+        # ── カムチャッカ津波 (3) ──
+        ("v2:kamchatka:20250730", "LH-tokyo-port", 2, "direct",
+         2, 2.0, "resolved", 300000000, "automated", 0.85),
+        ("v2:kamchatka:20250730", "LH-yokohama-port", 2, "direct",
+         2, 2.0, "resolved", 350000000, "automated", 0.85),
+        ("v2:kamchatka:20250730", "PLT006", 2, "direct",
+         3, 3.0, "resolved", 270000000, "automated", 0.80),
+        # ── 九州豪雨 (2) ──
+        ("v2:kyushuflood:20250806", "PLT004", 3, "direct",
+         14, 12.0, "resolved", 840000000, "automated", 0.85),
+        ("v2:kyushuflood:20250806", "LH-kobe-port", 2, "downstream",
+         5, 3.0, "resolved", 200000000, "automated", 0.70),
+        # ── 台風15号 (2) ──
+        ("v2:typhoon15:20250905", "PLT004", 3, "direct",
+         10, 8.0, "resolved", 560000000, "automated", 0.85),
+        ("v2:typhoon15:20250905", "PLT005", 2, "downstream",
+         5, 3.0, "resolved", 225000000, "automated", 0.75),
+        # ── 台風ハロン (2) ──
+        ("v2:halong:20251009", "LH-tokyo-port", 2, "direct",
+         3, 3.0, "resolved", 450000000, "automated", 0.80),
+        ("v2:halong:20251009", "PLT001", 1, "downstream",
+         2, 2.0, "resolved", 200000000, "automated", 0.65),
+        # ── 台湾地震 (3) ──
+        ("v2:taiwan:20251227", "SUP001", 3, "direct",
+         3, 2.0, "resolved", 3500000000, "automated", 0.85),
+        ("v2:taiwan:20251227", "LH-kaohsiung-port", 2, "direct",
+         2, 3.0, "resolved", 400000000, "automated", 0.80),
+        ("v2:taiwan:20251227", "PLT001", 2, "downstream",
+         7, 3.0, "resolved", 240000000, "automated", 0.70),
+        # ── 米国対日関税 (4) ──
+        ("v2:ustariff:20250722", "CUS001", 4, "direct",
+         365, 12.0, "active", 910000000000, "manual", 1.0),
+        ("v2:ustariff:20250722", "PLT003", 3, "direct",
+         365, 8.0, "active", 2800000000, "manual", 0.95),
+        ("v2:ustariff:20250722", "CUS004", 3, "direct",
+         365, 6.0, "active", 2400000000, "manual", 0.90),
+        ("v2:ustariff:20250722", "PLT009", 2, "downstream",
+         365, 5.0, "active", 1400000000, "manual", 0.80),
+        # ── 中国レアアース規制 (3) ──
+        ("v2:cnmineral:20250404", "SUP103", 4, "direct",
+         365, 20.0, "active", 6000000000, "manual", 0.95),
+        ("v2:cnmineral:20250404", "SUP007", 3, "direct",
+         180, 12.0, "active", 3200000000, "manual", 0.90),
+        ("v2:cnmineral:20250404", "SUP006", 3, "direct",
+         180, 10.0, "active", 2800000000, "manual", 0.85),
+        # ── 中国デュアルユース禁止 (3) ──
+        ("v2:cndualuse:20260106", "CUS005", 5, "direct",
+         365, 15.0, "active", 18000000000, "manual", 0.95),
+        ("v2:cndualuse:20260106", "SUP006", 3, "direct",
+         180, 8.0, "active", 2200000000, "manual", 0.85),
+        ("v2:cndualuse:20260106", "SUP103", 3, "downstream",
+         180, 5.0, "active", 1500000000, "manual", 0.80),
+        # ── ホルムズ海峡危機 (4) ──
+        ("v2:hormuz:20260228", "PLT001", 4, "direct",
+         90, 20.0, "active", 5000000000, "automated", 0.90),
+        ("v2:hormuz:20260228", "PLT002", 4, "direct",
+         90, 20.0, "active", 4000000000, "automated", 0.90),
+        ("v2:hormuz:20260228", "PLT003", 4, "direct",
+         90, 20.0, "active", 3500000000, "automated", 0.90),
+        ("v2:hormuz:20260228", "PLT004", 3, "direct",
+         90, 15.0, "active", 1050000000, "automated", 0.85),
+        # ── SCOTUS関税判決 (2) ──
+        ("v2:scotus:20260220", "CUS001", 2, "direct",
+         365, 3.0, "active", 230000000000, "manual", 0.90),
+        ("v2:scotus:20260220", "PLT003", 2, "downstream",
+         365, 2.0, "active", 700000000, "manual", 0.85),
+        # ── 紅海攻撃 (2) ──
+        ("v2:redsea:20250701", "LH-singapore-port", 3, "direct",
+         120, 10.0, "resolved", 2000000000, "automated", 0.85),
+        ("v2:redsea:20250701", "LH-rotterdam-port", 3, "direct",
+         120, 15.0, "resolved", 3500000000, "automated", 0.85),
     ]
     for (dk, target, sev, itype, days, cost_pct, status,
          amount, method, confidence) in impacts:
@@ -1036,6 +1319,19 @@ def create_sample_disrupts() -> None:
          "US Department of Commerce", "2022-10-07", 25.0, True),
         ("manual:chips-act:20220809", "8542.31", "TW", "CN",
          "US Department of Commerce", "2022-10-07", 0.0, True),
+        # v2追加
+        ("v2:ustariff:20250722", "8708.99", "JP", "US",
+         "USTR", "2025-04-09", 15.0, False),
+        ("v2:ustariff:20250722", "8542.31", "JP", "US",
+         "USTR", "2025-04-09", 15.0, False),
+        ("v2:cnmineral:20250404", "2612.10", "CN", "JP",
+         "中国商務部", "2025-04-04", 0.0, True),
+        ("v2:cndualuse:20260106", "8542.31", "CN", "JP",
+         "中国商務部", "2026-01-06", 0.0, True),
+        ("v2:cndualuse:20260106", "8544.49", "CN", "JP",
+         "中国商務部", "2026-01-06", 0.0, True),
+        ("v2:scotus:20260220", "8708.99", "JP", "US",
+         "USTR / Section 122", "2026-02-24", 10.0, False),
     ]
     for (dk, hs, origin, dest, regulator, eff_date,
          tariff_pct, restricted) in disrupts:
@@ -1062,6 +1358,17 @@ def create_sample_related_events() -> None:
         # 上海ロックダウン → 上海港の混雑（contributes_to）
         ("manual:shanghai:20220328", "manual:suez:20210323",
          "coincident", 0, 0.3),
+        # v2追加
+        ("v2:cnmineral:20250404", "v2:cndualuse:20260106",
+         "contributes_to", 277, 0.85),
+        ("v2:ustariff:20250722", "v2:scotus:20260220",
+         "contributes_to", 317, 0.95),
+        ("v2:hormuz:20260228", "v2:redsea:20250701",
+         "contributes_to", 0, 0.80),
+        ("v2:kyushuflood:20250806", "v2:typhoon15:20250905",
+         "coincident", 30, 0.20),
+        ("v2:nf3fire:20250807", "v2:taiwan:20251227",
+         "coincident", 142, 0.10),
     ]
     for from_dk, to_dk, rel_type, delay, conf in relations:
         execute_query(f"""

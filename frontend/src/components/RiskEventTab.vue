@@ -80,11 +80,21 @@ function getImpactCount(eventId: string): number | null {
 const severityColors = ['#22c55e', '#eab308', '#f97316', '#ef4444', '#991b1b'];
 function severityColor(sev: number) { return severityColors[Math.min(sev - 1, 4)]; }
 
-const typeIcons: Record<string, string> = {
-  earthquake: '🌍', typhoon: '🌀', flood: '🌊', port_closure: '⚓',
-  sanction: '🚫', trade_restriction: '📋', supplier_bankruptcy: '💰',
-  pandemic: '🦠', factory_incident: '🔥',
+const typeLabels: Record<string, string> = {
+  earthquake: '地震',
+  typhoon: '台風',
+  flood: '洪水',
+  port_closure: '港湾閉鎖',
+  sanction: '制裁',
+  trade_restriction: '貿易規制',
+  supplier_bankruptcy: '供給不全',
+  pandemic: '感染症',
+  factory_incident: '設備事故',
 };
+
+function eventTypeLabel(eventType: string): string {
+  return typeLabels[eventType] || eventType;
+}
 
 function timeAgo(dateStr: string): string {
   const diff = Date.now() - new Date(dateStr).getTime();
@@ -170,7 +180,8 @@ async function dismissEvent(eventId: string) {
           <span class="sev-badge" :style="{ background: severityColor(ev.severity) }">{{ ev.severity }}</span>
           <div class="card-info">
             <div class="card-title">
-              <span>{{ typeIcons[ev.eventType] || '⚠️' }}</span> {{ ev.title }}
+              <span class="type-chip">{{ eventTypeLabel(ev.eventType) }}</span>
+              <span>{{ ev.title }}</span>
             </div>
             <div class="card-meta">
               <span class="lifecycle-tag">{{ ev.lifecycleStatus }}</span>
@@ -280,6 +291,20 @@ async function dismissEvent(eventId: string) {
 .sev-badge { display: flex; align-items: center; justify-content: center; width: 24px; height: 24px; border-radius: var(--radius-sm); color: #fff; font-size: var(--text-xs); font-weight: 700; flex-shrink: 0; }
 .card-info { flex: 1; min-width: 0; }
 .card-title { font-size: var(--text-sm); font-weight: 600; display: flex; align-items: center; gap: 4px; }
+.type-chip {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 20px;
+  padding: 0 var(--space-2);
+  border-radius: 999px;
+  border: 1px solid var(--color-gray-300);
+  background: var(--color-gray-50);
+  color: var(--color-gray-700);
+  font-size: 10px;
+  font-weight: 700;
+  flex-shrink: 0;
+}
 .card-meta { display: flex; gap: var(--space-2); font-size: var(--text-xs); color: var(--color-gray-700); margin-top: 2px; }
 .lifecycle-tag { padding: 1px var(--space-1); border-radius: 2px; background: var(--color-gray-200); font-size: 10px; text-transform: uppercase; }
 .card-stats { font-size: var(--text-xs); color: var(--color-gray-700); white-space: nowrap; }

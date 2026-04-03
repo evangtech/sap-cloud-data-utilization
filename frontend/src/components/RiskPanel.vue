@@ -73,11 +73,11 @@ function startResize(e: MouseEvent) {
 defineExpose({ openTab });
 
 const tabs = [
-  { id: 'events' as const, label: 'イベント', icon: '⚡' },
-  { id: 'impacts' as const, label: 'インパクト', icon: '🎯' },
-  { id: 'corridors' as const, label: 'ルート', icon: '🛤️' },
-  { id: 'recovery' as const, label: '復旧', icon: '🔄' },
-  { id: 'nodes' as const, label: 'ノード', icon: '📍' },
+  { id: 'events' as const, label: 'イベント' },
+  { id: 'impacts' as const, label: 'インパクト' },
+  { id: 'corridors' as const, label: 'ルート' },
+  { id: 'recovery' as const, label: '復旧' },
+  { id: 'nodes' as const, label: 'ノード' },
 ];
 </script>
 
@@ -108,7 +108,6 @@ const tabs = [
             :class="{ active: activeTab === tab.id }"
             @click="setTab(tab.id)"
           >
-            <span class="tab-icon">{{ tab.icon }}</span>
             <span class="tab-label">{{ tab.label }}</span>
           </button>
         </div>
@@ -219,7 +218,6 @@ const tabs = [
   border-bottom-color: var(--color-primary-700);
   font-weight: 600;
 }
-.tab-icon { font-size: 12px; }
 
 .collapse-btn {
   border: none;

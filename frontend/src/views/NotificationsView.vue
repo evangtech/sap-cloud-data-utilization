@@ -17,11 +17,11 @@ const store = useNotificationStore();
 
 /** ステータスタブ定義 */
 const STATUS_TABS = [
-  { value: null, label: '全件', icon: '📋' },
-  { value: 'CONFIRMED', label: '確認済み', icon: '🔴' },
-  { value: 'PENDING', label: '保留中', icon: '🟡' },
-  { value: 'WATCHING', label: '監視中', icon: '🔵' },
-  { value: 'DISMISSED', label: '却下', icon: '⚪' },
+  { value: null, label: '全件' },
+  { value: 'CONFIRMED', label: '確認済み' },
+  { value: 'PENDING', label: '保留中' },
+  { value: 'WATCHING', label: '監視中' },
+  { value: 'DISMISSED', label: '却下' },
 ] as const;
 
 /** ステータス表示設定 */
@@ -33,27 +33,27 @@ const STATUS_CONFIG: Record<string, { label: string; class: string }> = {
 };
 
 /** カテゴリ設定 */
-const CATEGORY_CONFIG: Record<string, { label: string; icon: string }> = {
-  earthquake: { label: '地震', icon: '🌍' },
-  flood: { label: '洪水', icon: '🌊' },
-  fire: { label: '火災', icon: '🔥' },
-  traffic: { label: '交通', icon: '🚛' },
-  infra: { label: 'インフラ', icon: '⚡' },
-  labor: { label: '労働', icon: '👷' },
-  geopolitics: { label: '地政学', icon: '🌐' },
-  pandemic: { label: 'パンデミック', icon: '🦠' },
+const CATEGORY_CONFIG: Record<string, { label: string }> = {
+  earthquake: { label: '地震' },
+  flood: { label: '洪水' },
+  fire: { label: '火災' },
+  traffic: { label: '交通' },
+  infra: { label: 'インフラ' },
+  labor: { label: '労働' },
+  geopolitics: { label: '地政学' },
+  pandemic: { label: 'パンデミック' },
 };
 
 /** ステータス選択肢 */
 const STATUS_OPTIONS = ['CONFIRMED', 'PENDING', 'WATCHING', 'DISMISSED'];
 
 /** ノードタイプアイコン */
-const NODE_TYPE_ICONS: Record<string, string> = {
-  plant: '🏭',
-  warehouse: '🏢',
-  supplier: '📦',
-  port: '⚓',
-  road: '🛣️',
+const NODE_TYPE_LABELS: Record<string, string> = {
+  plant: '工場',
+  warehouse: '倉庫',
+  supplier: '供給元',
+  port: '港湾',
+  road: '輸送',
 };
 
 /** 1ページあたりの表示件数 */
@@ -186,11 +186,11 @@ function formatRelativeTime(isoStr?: string): string {
 }
 
 function getCategoryConfig(categoryId: string) {
-  return CATEGORY_CONFIG[categoryId] || { label: categoryId, icon: '📌' };
+  return CATEGORY_CONFIG[categoryId] || { label: categoryId };
 }
 
-function getNodeIcon(nodeType: string): string {
-  return NODE_TYPE_ICONS[nodeType] || '📍';
+function getNodeTypeLabel(nodeType: string): string {
+  return NODE_TYPE_LABELS[nodeType] || nodeType;
 }
 
 function getStatusConfig(status: string) {
@@ -243,7 +243,6 @@ watch([riskLevelFilter, categoryFilter], () => {
           </svg>
         </button>
         <div class="nv-brand">
-          <span class="nv-brand__icon">⚡</span>
           <span class="nv-brand__text">リスク通知</span>
         </div>
       </div>
@@ -257,7 +256,6 @@ watch([riskLevelFilter, categoryFilter], () => {
           :class="{ 'nv-nav__item--active': store.currentStatus === tab.value }"
           @click="onTabChange(tab.value)"
         >
-          <span class="nv-nav__icon">{{ tab.icon }}</span>
           <span class="nv-nav__label">{{ tab.label }}</span>
           <span class="nv-nav__count">{{ getTabCount(tab.value) }}</span>
         </button>
@@ -325,7 +323,7 @@ watch([riskLevelFilter, categoryFilter], () => {
           <select class="nv-select" @change="onCategoryChange" :value="categoryFilter ?? ''">
             <option value="">カテゴリ: 全て</option>
             <option v-for="(cfg, key) in CATEGORY_CONFIG" :key="key" :value="key">
-              {{ cfg.icon }} {{ cfg.label }}
+              {{ cfg.label }}
             </option>
           </select>
         </div>
@@ -356,7 +354,6 @@ watch([riskLevelFilter, categoryFilter], () => {
 
       <!-- エラー -->
       <div v-else-if="store.error" class="nv-error">
-        <span class="nv-error__icon">⚠️</span>
         <p class="nv-error__text">{{ store.error }}</p>
         <button class="nv-error__retry" @click="store.loadEvents()">再試行</button>
       </div>
@@ -414,10 +411,7 @@ watch([riskLevelFilter, categoryFilter], () => {
 
             <!-- カテゴリ -->
             <span class="nv-list__col nv-list__col--category">
-              <span class="nv-category">
-                <span class="nv-category__icon">{{ getCategoryConfig(evt.category_id).icon }}</span>
-                {{ getCategoryConfig(evt.category_id).label }}
-              </span>
+              <span class="nv-category">{{ getCategoryConfig(evt.category_id).label }}</span>
             </span>
 
             <!-- 摘要 -->
@@ -434,7 +428,8 @@ watch([riskLevelFilter, categoryFilter], () => {
                   class="nv-node-chip"
                   @click="navigateToNode(node.node_type, node.id)"
                 >
-                  {{ getNodeIcon(node.node_type) }} {{ node.name }}
+                  <span class="nv-node-chip__type">{{ getNodeTypeLabel(node.node_type) }}</span>
+                  <span>{{ node.name }}</span>
                 </span>
                 <span v-if="evt.related_nodes.length > 2" class="nv-node-more">
                   +{{ evt.related_nodes.length - 2 }}
@@ -492,7 +487,7 @@ watch([riskLevelFilter, categoryFilter], () => {
                       @click="navigateToNode(node.node_type, node.id)"
                     >
                       <div class="nv-detail__node-head">
-                        <span>{{ getNodeIcon(node.node_type) }}</span>
+                        <span class="nv-detail__node-kind">{{ getNodeTypeLabel(node.node_type) }}</span>
                         <span class="nv-detail__node-name">{{ node.name }}</span>
                         <span class="nv-detail__node-type">{{ node.node_type }}</span>
                       </div>
@@ -548,7 +543,6 @@ watch([riskLevelFilter, categoryFilter], () => {
 
         <!-- 空状態 -->
         <div v-if="pagedEvents.length === 0 && !store.isLoading" class="nv-empty-state">
-          <span class="nv-empty-state__icon">📭</span>
           <p class="nv-empty-state__text">該当するイベントはありません</p>
         </div>
       </div>
@@ -634,9 +628,6 @@ watch([riskLevelFilter, categoryFilter], () => {
   align-items: center;
   gap: 8px;
 }
-.nv-brand__icon {
-  font-size: 18px;
-}
 .nv-brand__text {
   font-size: 15px;
   font-weight: 700;
@@ -673,12 +664,6 @@ watch([riskLevelFilter, categoryFilter], () => {
 .nv-nav__item--active {
   background: #eef2ff;
   color: #4f46e5;
-}
-.nv-nav__icon {
-  font-size: 15px;
-  width: 20px;
-  text-align: center;
-  flex-shrink: 0;
 }
 .nv-nav__label {
   flex: 1;
@@ -912,7 +897,6 @@ watch([riskLevelFilter, categoryFilter], () => {
   padding: 60px 0;
   gap: 12px;
 }
-.nv-error__icon { font-size: 32px; }
 .nv-error__text { font-size: 14px; color: #dc2626; }
 .nv-error__retry {
   padding: 8px 20px;
@@ -1066,12 +1050,8 @@ watch([riskLevelFilter, categoryFilter], () => {
 .nv-category {
   display: inline-flex;
   align-items: center;
-  gap: 4px;
   font-size: 12px;
   color: #475569;
-}
-.nv-category__icon {
-  font-size: 14px;
 }
 
 /* 摘要テキスト */
@@ -1089,7 +1069,7 @@ watch([riskLevelFilter, categoryFilter], () => {
 .nv-node-chip {
   display: inline-flex;
   align-items: center;
-  gap: 3px;
+  gap: 6px;
   padding: 2px 8px;
   background: #f1f5f9;
   border-radius: 6px;
@@ -1100,6 +1080,16 @@ watch([riskLevelFilter, categoryFilter], () => {
   margin-right: 4px;
   margin-bottom: 2px;
   white-space: nowrap;
+}
+.nv-node-chip__type {
+  display: inline-flex;
+  align-items: center;
+  padding: 1px 6px;
+  border-radius: 999px;
+  background: #e2e8f0;
+  color: #475569;
+  font-size: 10px;
+  font-weight: 700;
 }
 .nv-node-chip:hover {
   background: #e0e7ff;
@@ -1216,6 +1206,16 @@ watch([riskLevelFilter, categoryFilter], () => {
   gap: 6px;
   margin-bottom: 6px;
 }
+.nv-detail__node-kind {
+  display: inline-flex;
+  align-items: center;
+  padding: 1px 6px;
+  border-radius: 999px;
+  background: #e2e8f0;
+  color: #475569;
+  font-size: 10px;
+  font-weight: 700;
+}
 .nv-detail__node-name {
   font-size: 13px;
   font-weight: 600;
@@ -1329,10 +1329,6 @@ watch([riskLevelFilter, categoryFilter], () => {
   align-items: center;
   padding: 60px 0;
   gap: 8px;
-}
-.nv-empty-state__icon {
-  font-size: 36px;
-  opacity: 0.6;
 }
 .nv-empty-state__text {
   font-size: 14px;

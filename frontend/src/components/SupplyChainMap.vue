@@ -359,7 +359,7 @@ function renderEarthquakes() {
     const marker = L.marker([eq.latitude, eq.longitude], { icon, zIndexOffset: 1000 });
 
     marker.bindPopup(createEarthquakePopup(eq), { maxWidth: 300 });
-    marker.bindTooltip(`🔴 ${eq.location} M${eq.magnitude}`, { direction: 'top', offset: [0, -14] });
+    marker.bindTooltip(`${eq.location} M${eq.magnitude}`, { direction: 'top', offset: [0, -14] });
     marker.addTo(map!);
     earthquakeMarkers.value.push(marker);
 
